@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<title>CIA 情报报告 — {{ topic }}</title>
+<link rel="stylesheet" href="https://cdn.datatables.net/2.1.8/css/dataTables.dataTables.min.css">
+<link rel="stylesheet" href="https://cdn.datatables.net/buttons/3.2.0/css/buttons.dataTables.min.css">
+<style>
+  :root {
+    --fg: #1f2328; --muted: #57606a; --bg: #fafbfc; --card: #ffffff;
+    --border: #d0d7de; --soft: #f6f8fa;
+    --blue: #0969da; --green: #1a7f37; --orange: #9a6700; --red: #cf222e;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                       "Hiragino Sans GB", system-ui, sans-serif;
+         margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+         line-height: 1.55; }
+  .container { max-width: 1280px; margin: 0 auto; padding: 24px 32px 48px; }
+
+  /* HEADER */
+  header.report-head { padding-bottom: 16px; border-bottom: 2px solid var(--border);
+                       margin-bottom: 24px; }
+  header.report-head h1 { margin: 0 0 6px 0; font-size: 26px; font-weight: 700; }
+  header.report-head .meta { color: var(--muted); font-size: 13px; }
+  header.report-head .meta span + span { margin-left: 16px; }
+
+  /* STATS CARDS */
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 28px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+          padding: 12px 16px; min-width: 140px; flex: 0 0 auto; }
+  .stat-num { font-size: 22px; font-weight: 600; color: var(--blue); line-height: 1.1; }
+  .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase;
+                letter-spacing: 0.5px; margin-top: 4px; }
+
+  /* NAV */
+  .nav { position: sticky; top: 0; background: rgba(250,251,252,0.94);
+         backdrop-filter: blur(8px); padding: 10px 0; margin: 0 0 24px 0;
+         border-bottom: 1px solid var(--border); z-index: 100; font-size: 13px; }
+  .nav a { color: var(--blue); text-decoration: none; margin-right: 18px; white-space: nowrap; }
+  .nav a:hover { text-decoration: underline; }
+
+  /* SYNTHESIS (rendered markdown) */
+  .synthesis { background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+               padding: 28px 36px; margin-bottom: 32px; }
+  .synthesis h1 { font-size: 22px; margin: 28px 0 12px; padding-bottom: 8px;
+                  border-bottom: 2px solid var(--border); color: var(--fg); font-weight: 700; }
+  .synthesis h1:first-child { margin-top: 0; }
+  .synthesis h2 { font-size: 18px; margin: 24px 0 10px; color: var(--fg); font-weight: 600;
+                  padding-left: 10px; border-left: 4px solid var(--blue); }
+  .synthesis h3 { font-size: 16px; margin: 20px 0 8px; color: var(--fg); font-weight: 600; }
+  .synthesis h4 { font-size: 14px; margin: 16px 0 6px; color: var(--muted); font-weight: 600;
+                  text-transform: uppercase; letter-spacing: 0.5px; }
+  .synthesis p { margin: 8px 0 12px; }
+  .synthesis ul, .synthesis ol { margin: 8px 0 14px; padding-left: 24px; }
+  .synthesis li { margin: 4px 0; }
+  .synthesis li > ul, .synthesis li > ol { margin: 4px 0; }
+  .synthesis strong { color: var(--fg); font-weight: 700; }
+  .synthesis blockquote { margin: 12px 0; padding: 10px 16px;
+                          background: var(--soft); border-left: 4px solid var(--blue);
+                          color: var(--muted); font-size: 14px; }
+  .synthesis code { background: var(--soft); padding: 2px 6px; border-radius: 4px;
+                    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                    font-size: 12px; color: var(--red); }
+  .synthesis pre { background: #0d1117; color: #e6edf3; padding: 14px 18px;
+                   border-radius: 8px; overflow-x: auto; margin: 12px 0;
+                   font-size: 12px; line-height: 1.5; }
+  .synthesis pre code { background: transparent; padding: 0; color: inherit; }
+
+  /* SYNTHESIS TABLES — first-class formatting */
+  .synthesis table { border-collapse: collapse; width: 100%; margin: 14px 0 20px;
+                     font-size: 13px; background: var(--card); }
+  .synthesis th { background: var(--soft); font-weight: 600; text-align: left;
+                  padding: 10px 12px; border-bottom: 2px solid var(--border);
+                  color: var(--fg); white-space: nowrap; }
+  .synthesis td { padding: 9px 12px; border-bottom: 1px solid var(--border);
+                  vertical-align: top; }
+  .synthesis tr:hover td { background: #f8fbff; }
+  .synthesis td:first-child { font-weight: 500; }
+  /* Right-align cells whose header text contains numbers / pure metric names */
+  .synthesis th[align="right"], .synthesis td[align="right"] { text-align: right;
+                                                                font-variant-numeric: tabular-nums; }
+
+  /* DETAIL DATA SECTIONS */
+  .data-section { background: var(--card); border: 1px solid var(--border);
+                  border-radius: 10px; margin-bottom: 18px; }
+  .data-section summary { cursor: pointer; padding: 16px 22px; font-weight: 600;
+                          font-size: 15px; user-select: none; list-style: none;
+                          display: flex; justify-content: space-between; align-items: center; }
+  .data-section summary::before { content: "▶"; color: var(--blue); font-size: 11px;
+                                  margin-right: 10px; transition: transform 0.15s; }
+  .data-section[open] summary::before { content: "▼"; }
+  .data-section .row-count { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .data-section .table-wrap { padding: 0 22px 22px; }
+  .data-section .note { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .data-section table.dataTable { font-size: 12px; width: 100% !important; }
+  .data-section table.dataTable th { background: var(--soft); font-weight: 600; }
+  .data-section table.dataTable td { vertical-align: top; }
+
+  /* SECTION DIVIDER */
+  .section-title { font-size: 18px; font-weight: 600; margin: 32px 0 14px;
+                   padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header class="report-head">
+  <h1>CIA 情报报告 — {{ topic }}</h1>
+  <div class="meta">
+    <span>📅 {{ generated_at }}</span>
+    <span>💰 累计成本 ${{ '%.4f' % total_cost }}</span>
+    <span>🗄 {{ db_path }}</span>
+  </div>
+</header>
+
+<div class="stats">
+  {% for k, v in stats.items() %}
+  <div class="stat">
+    <div class="stat-num">{{ '{:,}'.format(v) }}</div>
+    <div class="stat-label">{{ k }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="nav">
+  <a href="#summary">📋 执行摘要</a>
+  {% for s in sections %}<a href="#sec-{{ loop.index }}">{{ s.title }}</a>{% endfor %}
+</div>
+
+{% if synthesis_html %}
+<section id="summary" class="synthesis">
+  {{ synthesis_html | safe }}
+</section>
+{% endif %}
+
+<div class="section-title">📊 完整数据明细（可搜索 / 排序 / 导出 CSV）</div>
+
+{% for s in sections %}
+<details class="data-section" {% if s.open %}open{% endif %} id="sec-{{ loop.index }}">
+  <summary>
+    <span>{{ s.title }}</span>
+    <span class="row-count">{{ s.row_count }} rows</span>
+  </summary>
+  <div class="table-wrap">
+    {% if s.note %}<div class="note">💡 {{ s.note }}</div>{% endif %}
+    {{ s.table_html | safe }}
+  </div>
+</details>
+{% endfor %}
+
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.datatables.net/2.1.8/js/dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/3.2.0/js/dataTables.buttons.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/3.2.0/js/buttons.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/3.2.0/js/buttons.html5.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+$(function(){
+  $('table.cia-table').each(function(){
+    $(this).DataTable({
+      pageLength: 25,
+      order: [],
+      dom: 'Bfrtip',
+      buttons: [{ extend: 'csv', text: '⬇ CSV' }, { extend: 'copy', text: '⎘ Copy' }],
+      scrollX: true
+    });
+  });
+});
+</script>
+</body>
+</html>

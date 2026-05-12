@@ -19,10 +19,45 @@ description: |
   当用户提到：市场分析、竞品分析、机会发现、App 市场、关键词研究、ASO、
   进入某个赛道、分析某个产品方向、找增长机会 时使用。
 
-metadata: {"openclaw":{"emoji":"🕵️","requires":{"env":["DATAFORSEO_BASIC_AUTH","APIFY_TOKEN","YOUTUBE_API_KEY"]}}}
+metadata: {"openclaw":{"emoji":"🕵️","requires":{"env":["CIA_HUB_URL","CIA_HUB_TOKEN"]}}}
 ---
 
 # CIA — 市场情报分析（v4 反确认偏误版）
+
+## 零、安装（用户只需 2 步）
+
+> 所有 API 调用走统一 Hub，**你不需要自己申请任何 API key**。
+> 向 Hub 管理员（@eric）申请一个 token 即可。
+
+```bash
+# Step 1: 克隆 skill
+git clone git@github.com:ericstory/CIA-insight.git ~/.claude/skills/cia
+
+# Step 2: 安装 Python 依赖
+pip install -r ~/.claude/skills/cia/scripts/requirements.txt
+```
+
+然后把以下两行写入 `~/.claude/settings.json` 的 `env` 字段：
+```json
+"CIA_HUB_URL": "https://cia.ericstory.me",
+"CIA_HUB_TOKEN": "<向 @eric 申请>"
+```
+
+**完成。** 无需 DataForSEO / Apify / YouTube / Ahrefs 等任何 API key。
+
+---
+
+**Hub 管理员（@eric）给新用户发 token：**
+```bash
+cd ~/workspace/CIA/hub
+python3 manage_users.py add --name "张三" --note "用途说明"
+# 输出包含 CIA_HUB_TOKEN，复制发给对方即可
+
+python3 manage_users.py list    # 查看所有用户
+python3 manage_users.py revoke --name "张三"   # 停用
+```
+
+---
 
 ## 设计原则
 
@@ -440,7 +475,9 @@ PLG 得分 = (10 - TTV/60) × 0.3 + (1 - setup_cost_index) × 0.3
 
 ## 八、成本预算
 
-单次完整 CIA 报告 ~$5-8：
+**对 Hub 用户：$0**，所有 API 调用走 Hub，费用由管理员承担。
+
+Hub 管理员（@eric）的实际成本参考（单次完整报告）：
 
 | 步骤 | 来源 | 估算 |
 |------|------|------|
@@ -451,7 +488,7 @@ PLG 得分 = (10 - TTV/60) × 0.3 + (1 - setup_cost_index) × 0.3
 | Step 9: YouTube | YouTube API (免费额度) | $0 |
 | Step 10.5: apply-tracks --fetch-svs | DataForSEO (24 App × 1000kw) | ~$2.50 |
 | Step 11: export 翻译 (~180条社交内容) | Anthropic Haiku | ~$0.01 |
-| **合计** | | **~$3-4** |
+| **合计** | | **~$3-4/次** |
 
 > Ahrefs MCP（Step 2/3/8）含在订阅里，不单独计费。
 

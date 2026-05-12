@@ -16,6 +16,33 @@ def init(db_path: pathlib.Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as con:
         con.executescript(SCHEMA_PATH.read_text())
+    _migrate(db_path)
+
+
+def _migrate(db_path: pathlib.Path) -> None:
+    """Apply non-destructive schema migrations for existing DBs."""
+    migrations = [
+        # v2: unified web+app clustering
+        "ALTER TABLE competitor_clusters ADD COLUMN competitor_type TEXT DEFAULT 'app'",
+        "ALTER TABLE competitor_clusters ADD COLUMN domain TEXT",
+        # v2: rename app_id → competitor_id (can't rename in SQLite, add alias column)
+        "ALTER TABLE competitor_clusters ADD COLUMN competitor_id_alias TEXT",
+        # v2: social cluster map
+        """CREATE TABLE IF NOT EXISTS social_cluster_map (
+            source TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            cluster_id INTEGER,
+            score REAL,
+            assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (source, item_id)
+        )""",
+    ]
+    with sqlite3.connect(db_path) as con:
+        for sql in migrations:
+            try:
+                con.execute(sql)
+            except sqlite3.OperationalError:
+                pass  # Column/table already exists
 
 
 @contextmanager

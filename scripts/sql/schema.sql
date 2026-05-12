@@ -172,12 +172,27 @@ CREATE TABLE IF NOT EXISTS ai_visibility (
 );
 
 -- Competitor cluster assignments (written by cluster-competitors command)
+-- competitor_id = app_id (numeric) for App competitors, domain string for Web competitors
 CREATE TABLE IF NOT EXISTS competitor_clusters (
-    app_id TEXT PRIMARY KEY,
+    competitor_id TEXT PRIMARY KEY,  -- app_id or domain
+    competitor_type TEXT DEFAULT 'app',  -- 'app' | 'web'
+    domain TEXT,                     -- NULL for apps, domain string for web
     cluster_id INTEGER,
-    cluster_label TEXT,         -- LLM-assigned name (filled in after clustering)
-    top_keywords TEXT,          -- comma-separated TF-IDF hints for LLM naming
+    cluster_label TEXT,
+    top_keywords TEXT,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_cc_cluster ON competitor_clusters(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_cc_type ON competitor_clusters(competitor_type);
+
+-- Social data → cluster assignment (written by assign-to-clusters command)
+CREATE TABLE IF NOT EXISTS social_cluster_map (
+    source TEXT NOT NULL,       -- 'tiktok' | 'youtube' | 'reddit'
+    item_id TEXT NOT NULL,
+    cluster_id INTEGER,
+    score REAL,
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (source, item_id)
 );
 
 -- Run log: who fetched what when, with cost tracking

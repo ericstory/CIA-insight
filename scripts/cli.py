@@ -358,7 +358,7 @@ def cmd_social_to_seeds(args):
 
 
 def cmd_discover_loop(args):
-    """Run circular competitor discovery loop: ASO keywords → new apps → repeat."""
+    """Run circular competitor discovery loop: App (ASO) + Web (Ahrefs organic-competitors)."""
     p = db_path_for(args.topic)
     _discover.run_loop(
         p,
@@ -369,12 +369,14 @@ def cmd_discover_loop(args):
         aso_limit=args.aso_limit,
         itunes_serp_limit=args.itunes_limit,
         max_apps_per_round=args.max_apps,
+        max_domains_per_round=args.max_domains,
+        budget_usd=args.budget,
         dry_run=args.dry_run,
     )
 
 
 def cmd_cluster_competitors(args):
-    """Cluster competitors by profile similarity using KMeans + TF-IDF on ASO keywords."""
+    """Cluster competitors (App + Web unified) using KMeans + TF-IDF on keywords."""
     p = db_path_for(args.topic)
     clusters = _cluster.cluster_competitors(
         p,
@@ -382,7 +384,7 @@ def cmd_cluster_competitors(args):
         max_k=args.max_k,
     )
     if not clusters:
-        print("Not enough competitor data to cluster (need ≥2 apps with review_count).")
+        print("Not enough competitor data to cluster.")
         return
     _cluster.print_clusters(clusters)
     if args.dry_run:
@@ -391,9 +393,18 @@ def cmd_cluster_competitors(args):
     n = _cluster.save_clusters(p, clusters)
     db.log_fetch(p, "analysis", "cluster_competitors",
                  {"n_clusters": args.n_clusters, "max_k": args.max_k}, rows=n)
-    print(f"\nSaved {n} cluster assignments → competitor_clusters table")
-    print("Next: label each cluster in the DB with:")
-    print("  UPDATE competitor_clusters SET cluster_label='<name>' WHERE cluster_id=<id>")
+    print(f"\nSaved {n} cluster assignments")
+    # Auto-assign social data to clusters
+    print("Assigning social data to clusters...")
+    n_social = _cluster.assign_social_to_clusters(p)
+    print(f"Assigned {n_social} social items → social_cluster_map")
+
+
+def cmd_assign_clusters(args):
+    """Score and assign social data (TikTok/YouTube/Reddit) to clusters."""
+    p = db_path_for(args.topic)
+    n = _cluster.assign_social_to_clusters(p)
+    print(f"Assigned {n} social items → social_cluster_map")
 
 
 def cmd_export(args):
@@ -480,20 +491,26 @@ def main():
     sp.set_defaults(func=cmd_social_to_seeds)
 
     sp = sub.add_parser("discover-loop",
-                        help="Circular discovery: fetch ASO for new apps, add new keywords, repeat")
+                        help="Circular discovery: App (ASO) + Web (Ahrefs organic-competitors)")
     sp.add_argument("--topic", required=True)
     sp.add_argument("--country", default="us")
     sp.add_argument("--max-rounds", type=int, default=3)
-    sp.add_argument("--min-new-kw", type=int, default=50,
-                    help="Stop if new keywords per round < this (default 50)")
-    sp.add_argument("--max-jaccard", type=float, default=0.70,
-                    help="Stop if Jaccard similarity vs pool > this (default 0.70)")
+    sp.add_argument("--min-new-kw", type=int, default=30)
+    sp.add_argument("--max-jaccard", type=float, default=0.70)
     sp.add_argument("--aso-limit", type=int, default=200)
     sp.add_argument("--itunes-limit", type=int, default=20)
-    sp.add_argument("--max-apps", type=int, default=20,
-                    help="Max new apps to fetch ASO for per round")
+    sp.add_argument("--max-apps", type=int, default=20)
+    sp.add_argument("--max-domains", type=int, default=10,
+                    help="Max new web domains to process per round (default 10)")
+    sp.add_argument("--budget", type=float, default=5.0,
+                    help="Max spend in USD before stopping (default $5)")
     sp.add_argument("--dry-run", action="store_true")
     sp.set_defaults(func=cmd_discover_loop)
+
+    sp = sub.add_parser("assign-to-clusters",
+                        help="Score TikTok/YouTube/Reddit against cluster keywords → write cluster_id")
+    sp.add_argument("--topic", required=True)
+    sp.set_defaults(func=cmd_assign_clusters)
 
     sp = sub.add_parser("cluster-competitors",
                         help="Cluster competitors by profile (KMeans on review/category/ASO keywords)")

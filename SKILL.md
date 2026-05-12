@@ -1,16 +1,21 @@
 ---
 name: cia
 description: |
-  首席情报官 — 反确认偏误市场机会分析。
-  
+  首席情报官 — 反确认偏误市场机会分析。输入任何 topic 或竞品名称，输出完整的竞品情报报告。
+
   触发场景：
   - 用户想进入一个新市场/产品方向，需要客观评估（不是证明想法对）
   - 用户提供竞品列表或 App 名称，想了解市场格局
   - 用户想找 PLG 增长机会（不依赖销售，下载即用）
   - 用户问"这个赛道值不值得做"、"有没有更大的机会"
-  
-  核心承诺：输出 7 条赛道，按数据排序，用户假设放倒数第 2 章，结论可能推翻用户方向。
-  
+
+  输出物：
+  - report.html — 可交互报告：赛道对比矩阵 + 每赛道三层详情（传播/需求/供给）+ 社交内容中文翻译
+  - data.xlsx — 原始词单/竞品/评论多 sheet 表格（供投放/ASO 团队使用）
+  - cia.db — 全量 SQLite 数据（可随时重新导出/调整）
+
+  核心承诺：赛道按 review 体量排序，结论可能推翻用户原始方向，用户假设放倒数第 2 章。
+
   当用户提到：市场分析、竞品分析、机会发现、App 市场、关键词研究、ASO、
   进入某个赛道、分析某个产品方向、找增长机会 时使用。
 
@@ -209,24 +214,87 @@ python3 cli.py status --topic "ai phone receptionist"
 # 显示每张表行数 + 总成本
 ```
 
-### Step 10.5：★ 竞品聚类（v3 新增，LLM 合成前先做）
-Python 用 KMeans + TF-IDF 自动把竞品分群，LLM 只给每群命名：
-```bash
-python3 cli.py cluster-competitors --topic "ai phone receptionist"
-# 输出每个 cluster 的 app 列表 + keyword hints
+### Step 10.5：★ 赛道定义（v4 两步确认流程）
 
-# 然后在 DB 里给每个 cluster 命名（LLM 看 hints 后填写）：
-sqlite3 ~/workspace/analytics/reports/<date>-cia-.../cia.db \
-  "UPDATE competitor_clusters SET cluster_label='AI Phone Receptionist' WHERE cluster_id=0"
+> **⚠ 反确认偏误关键步骤。** LLM 看竞品 review_count 排名，不是 topic name。
+> 赛道数量建议 6-12 条，必须人工确认后才写 DB。
+
+**Phase 1 — 生成提案（不写 DB）：**
+```bash
+python3 cli.py propose-tracks --topic "ai phone receptionist" --n 8 \
+  --hints "实时翻译类,AI接待类,外呼自动化,虚拟号码类,免费网络电话类"
+# 输出提案 → 保存到 <report_dir>/proposed_tracks.json
 ```
 
-### Step 11：LLM 写解读 → 导出
-1. 用 sqlite3 读关键聚合（详见 §六）
-2. LLM 写 `synthesis.md`（只写解读段落，**不写表**）
-3. 导出：
+**★ Claude 必须把提案展示给用户，逐条确认：**
+1. 赛道名称和英文名是否准确？
+2. 有没有漏掉用户 hints 里的赛道？
+3. 有没有明显是数据噪声的赛道（如通用 AI 聊天类）？
+4. 关键词是否聚焦（过泛的词要删）？
+
+**用户确认后，可直接编辑 proposed_tracks.json，然后执行：**
 ```bash
+# 写入 DB + 分配竞品 + 分配社交数据
+python3 cli.py apply-tracks --topic "ai phone receptionist"
+
+# 推荐加 --fetch-svs：补采缺失的赛道关键词搜索量（~$2-3）
+python3 cli.py apply-tracks --topic "ai phone receptionist" --fetch-svs
+```
+
+**提案 JSON 可直接手工编辑（最灵活的调整方式）：**
+```json
+[
+  {
+    "track_id": 0,
+    "name": "实时翻译类",
+    "name_en": "Real-time Language Translation",
+    "description": "Users translate voice/text/documents across languages in real time.",
+    "keywords": "translate,translator,voice translator,real-time translation,call translator,..."
+  }
+]
+```
+
+**赛道质量保证规则：**
+- score=0（无关键词匹配）的竞品 App 不分配任何赛道，避免噪声污染
+- apply-tracks 每次先清表再写，不留历史脏数据
+- ASO 关键词自动过滤：只保留含赛道特征词的词，排除 google/gmail/facebook 等导航词
+
+**备选：一步到位（测试 / 快速验证时使用）：**
+```bash
+python3 cli.py define-tracks --topic "..." --n 8 --hints "实时翻译类,外呼类"
+```
+
+### Step 11：导出报告
+```bash
+python3 cli.py export --topic "ai phone receptionist"
+# 生成：data.xlsx + report.html
+# export 会自动调 Haiku 翻译所有社交内容为中文（约 15 秒，< $0.01）
+
+# 可选：附上 LLM 写的解读摘要
 python3 cli.py export --topic "ai phone receptionist" --synthesis-file synthesis.md
-# 生成：data.xlsx + report.html（含 LLM 摘要 + 14 张可搜索表）
+```
+
+**报告包含内容（report.html）：**
+
+```
+赛道总览对比矩阵（按 total_reviews 降序）
+  每行 = 一条赛道，5 列：
+  ① 赛道名 + 英文名 + LLM描述 + App/Web/社媒数量
+  ② 市场体量：总 Review 数 + 均评分
+  ③ 头部竞品：Top 3 App 名称 + Review 数
+  ④ 搜索需求：赛道特征词 + 搜索量（绿=ASO，蓝=Web）+ 渠道汇总
+  ⑤ 传播钩子：Top TikTok 文本 or YouTube 标题（带播放量）
+
+每条赛道三层详情页（点击赛道名进入）：
+  [📡 传播] TikTok卡片 / YouTube视频 / Reddit帖子
+              ↳ 每条内容下方显示中文翻译（Haiku 实时生成）
+  [🔍 需求] ASO关键词表（已过滤噪声） / Google关键词表
+  [🏢 供给] 竞品App表 / 竞品官网流量 / 差评
+
+侧边栏全局页面：
+  Google关键词 / Golden词 / ASO词 / 蓝海词
+  竞品App / 竞品官网 / 差评 / AI引用份额
+  Fetch Log（成本审计）
 ```
 
 ---
@@ -372,10 +440,20 @@ PLG 得分 = (10 - TTV/60) × 0.3 + (1 - setup_cost_index) × 0.3
 
 ## 八、成本预算
 
-单次完整 CIA 报告 ~$1-3：
-- DataForSEO Keywords-for-App × 20 个竞品 ~ $0.30
-- DataForSEO App Reviews × 5 个竞品 × 200 review ~ $0.03
-- Apify TikTok + Reddit ~ $0.30
+单次完整 CIA 报告 ~$5-8：
+
+| 步骤 | 来源 | 估算 |
+|------|------|------|
+| Step 1A: TikTok + Reddit | Apify | ~$0.30 |
+| Step 4-5: iTunes SERP + 元数据 | iTunes (免费) | $0 |
+| Step 6: discover-loop ASO × 20 竞品 | DataForSEO | ~$0.30 |
+| Step 7: App Reviews × 5 竞品 × 200 | DataForSEO | ~$0.03 |
+| Step 9: YouTube | YouTube API (免费额度) | $0 |
+| Step 10.5: apply-tracks --fetch-svs | DataForSEO (24 App × 1000kw) | ~$2.50 |
+| Step 11: export 翻译 (~180条社交内容) | Anthropic Haiku | ~$0.01 |
+| **合计** | | **~$3-4** |
+
+> Ahrefs MCP（Step 2/3/8）含在订阅里，不单独计费。
 
 DataForSEO 余额查询：
 ```bash
@@ -391,13 +469,14 @@ curl -s -X GET "https://api.dataforseo.com/v3/appendix/user_data" \
 - ❌ **不要让 LLM 手抄数据进 markdown** — 全走 Python → SQLite → Excel/HTML
 - ❌ **不要在 LLM 阶段砍数据** — Ahrefs 给多少 ingest 多少，导出层负责筛选展示
 - ❌ **不要写"展示型"报告** — 投放团队要原始词单 (xlsx)，不是 15 行精选
-- ❌ **不要单方向证明用户假设** — 必须给 7 条赛道按 TAM×PLG 排序，用户假设不置顶
+- ❌ **不要单方向证明用户假设** — 必须按 review 体量排赛道，用户假设不置顶
 - ❌ **不要重复调 API** — 每次 run 前先 `cli.py status` 看 DB 已有什么；重跑要明确删表
-- ❌ **不要跳过 cluster-competitors 直接写 synthesis** — v4 赛道必须从 Python 聚类结果出发
+- ❌ **不要跳过 propose-tracks 确认直接 apply** — 未经人工审核的赛道定义会污染所有分析
 - ❌ **不要把 TikTok 当"验证工具"** — TikTok/Reddit 是 leading indicator，Step 1 就运行
-- ❌ **不要把用户假设赛道置顶** — 报告排序键是 `total_reviews × plg_score`，不是 relevance
-- ❌ **不要因"看起来不相关"过滤大赛道** — 任何 cluster `total_reviews > 用户假设 × 3` 必须独立成卡
+- ❌ **不要把用户假设赛道置顶** — 矩阵排序键是 `total_reviews`，与 topic 相关性无关
+- ❌ **不要因"看起来不相关"过滤大体量赛道** — 翻译赛道 345K reviews 远大于 AI 接待 8K，就该排第一
 - ❌ **不要跳过 PLG 体检** — TTV/setup_cost/viral_loop/sales_dep 四项缺一不发报告
+- ❌ **不要用高 SV 的 ASO 词做赛道总量** — google/gmail/facebook 会污染任何包含这些 App 的赛道，依赖 score 过滤后的真实词
 
 ---
 

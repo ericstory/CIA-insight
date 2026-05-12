@@ -37,6 +37,7 @@ from fetchers import dataforseo, itunes, apify, youtube, ahrefs_ingest
 from export import excel, html as html_exp
 from analysis import social_seeds as _social_seeds
 from analysis import cluster as _cluster
+from analysis import define_tracks as _define_tracks
 from pipeline import discover as _discover
 
 
@@ -407,6 +408,36 @@ def cmd_assign_clusters(args):
     print(f"Assigned {n} social items → social_cluster_map")
 
 
+def cmd_define_tracks(args):
+    """One-shot: LLM defines tracks + assigns competitors (no confirmation pause)."""
+    p = db_path_for(args.topic)
+    db._migrate(p)
+    hints = [h.strip() for h in args.hints.split(",") if h.strip()] if args.hints else None
+    _define_tracks.run(p, n=args.n, hints=hints)
+    print("\nAssigning social data to tracks...")
+    n_social = _cluster.assign_social_to_clusters(p)
+    print(f"Assigned {n_social} social items → social_cluster_map")
+
+
+def cmd_propose_tracks(args):
+    """Phase 1: LLM proposes tracks → saves proposed_tracks.json for review. Does NOT write DB."""
+    p = db_path_for(args.topic)
+    db._migrate(p)
+    hints = [h.strip() for h in args.hints.split(",") if h.strip()] if args.hints else None
+    _define_tracks.propose(p, n=args.n, hints=hints)
+
+
+def cmd_apply_tracks(args):
+    """Phase 2: Read confirmed proposed_tracks.json → write DB → assign competitors + social."""
+    p = db_path_for(args.topic)
+    _define_tracks.apply(p)
+    if args.fetch_svs:
+        _define_tracks.fetch_missing_svs(p)
+    print("\nAssigning social data to tracks...")
+    n_social = _cluster.assign_social_to_clusters(p)
+    print(f"Assigned {n_social} social items → social_cluster_map")
+
+
 def cmd_export(args):
     p = db_path_for(args.topic)
     d = topic_dir(args.topic)
@@ -520,6 +551,29 @@ def main():
     sp.add_argument("--max-k", type=int, default=8)
     sp.add_argument("--dry-run", action="store_true")
     sp.set_defaults(func=cmd_cluster_competitors)
+
+    sp = sub.add_parser("define-tracks",
+                        help="One-shot: LLM defines tracks + assigns (no confirmation pause)")
+    sp.add_argument("--topic", required=True)
+    sp.add_argument("--n", type=int, default=6, help="Number of tracks (default 6)")
+    sp.add_argument("--hints", default="",
+                    help="Comma-separated track names user expects, e.g. '实时翻译类,外呼类'")
+    sp.set_defaults(func=cmd_define_tracks)
+
+    sp = sub.add_parser("propose-tracks",
+                        help="Phase 1: LLM proposes tracks → saves JSON for review (no DB write)")
+    sp.add_argument("--topic", required=True)
+    sp.add_argument("--n", type=int, default=6, help="Number of tracks (default 6)")
+    sp.add_argument("--hints", default="",
+                    help="Comma-separated tracks user expects, e.g. '实时翻译类,外呼类'")
+    sp.set_defaults(func=cmd_propose_tracks)
+
+    sp = sub.add_parser("apply-tracks",
+                        help="Phase 2: Commit proposed_tracks.json to DB + assign competitors")
+    sp.add_argument("--topic", required=True)
+    sp.add_argument("--fetch-svs", action="store_true",
+                    help="Fetch missing SV for track keywords via iTunes+DataForSEO (~$0.10)")
+    sp.set_defaults(func=cmd_apply_tracks)
 
     sp = sub.add_parser("fetch-tiktok"); sp.add_argument("--topic", required=True)
     sp.add_argument("--queries", required=True); sp.add_argument("--max-items", type=int, default=80)

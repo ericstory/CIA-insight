@@ -195,6 +195,16 @@ CREATE TABLE IF NOT EXISTS social_cluster_map (
     PRIMARY KEY (source, item_id)
 );
 
+-- LLM-defined market track taxonomy (written by define-tracks command)
+CREATE TABLE IF NOT EXISTS tracks (
+    track_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,        -- Chinese name e.g. "AI接待类"
+    name_en TEXT,              -- English name
+    description TEXT,
+    keywords TEXT,             -- comma-separated keyword patterns (lowercase)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Run log: who fetched what when, with cost tracking
 CREATE TABLE IF NOT EXISTS fetch_log (
     id INTEGER PRIMARY KEY,

@@ -164,6 +164,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-
 .kw-tag{background:var(--soft);border:1px solid var(--border);border-radius:10px;
         padding:2px 8px;font-size:11px;color:var(--muted)}
 
+/* ── TRACK TABS ── */
+.track-tabs{display:flex;gap:8px;margin-bottom:20px;border-bottom:2px solid var(--border);
+            padding-bottom:10px}
+.tab-btn{background:none;border:none;padding:6px 14px;font-size:13px;cursor:pointer;
+         color:var(--muted);border-radius:6px 6px 0 0;font-family:inherit;
+         border-bottom:2px solid transparent;margin-bottom:-12px}
+.tab-btn:hover{background:var(--soft);color:var(--fg)}
+.tab-btn.active{color:var(--blue);font-weight:600;border-bottom-color:var(--blue)}
+.tab-pane{display:none}
+.tab-pane.active{display:block}
+
 /* ── REVIEWS ── */
 .review-item{background:var(--card);border:1px solid var(--border);border-radius:8px;
              padding:12px 14px;margin-bottom:10px}
@@ -320,26 +331,97 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-
 <!-- ══════════ TRACKS ══════════ -->
 <section class="page-section" data-route="/tracks">
   <div class="page-head">
-    <h2>🗺 赛道全景</h2>
-    <div class="sub">{{ tracks|length }} 条赛道，按竞品数量排序</div>
+    <h2>🗺 赛道总览对比矩阵</h2>
+    <div class="sub">{{ tracks|length }} 条赛道 · 点击赛道名进入三层详情</div>
   </div>
   {% if tracks %}
-  <div class="track-grid">
-    {% for t in tracks %}
-    <a class="track-card" href="#/track/{{ t.id }}" data-nav>
-      <div class="track-id">赛道 #{{ t.id }}</div>
-      <div class="track-label">{{ t.label }}</div>
-      <div class="track-meta">
-        <span>📱 {{ t.n_apps }} 个竞品</span>
-        <span>🔑 {{ t.keywords|length }} 词</span>
-        <span>💔 {{ t.reviews|length }} 差评</span>
-      </div>
-      <div class="kw-tags">
-        {% for kw in t.top_keywords[:5] %}{% if kw.strip() %}<span class="kw-tag">{{ kw.strip() }}</span>{% endif %}{% endfor %}
-      </div>
-    </a>
+  <table class="cia-table display" id="dt-tracks-matrix" style="width:100%;margin-bottom:32px">
+    <thead>
+      <tr>
+        <th style="min-width:110px">赛道</th>
+        <th style="min-width:90px">市场体量</th>
+        <th style="min-width:200px">头部竞品</th>
+        <th style="min-width:200px">搜索需求</th>
+        <th style="min-width:220px">传播钩子</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in tracks|sort(attribute='total_reviews', reverse=True) %}
+    <tr>
+      {# 赛道名 + 英文名 + LLM描述 + 数量 #}
+      <td>
+        <a href="#/track/{{ t.id }}" data-nav
+           style="font-weight:700;font-size:14px;color:var(--fg);text-decoration:none;display:block;margin-bottom:2px">{{ t.label }}</a>
+        {% if t.name_en %}<div style="font-size:10px;color:var(--muted);margin-bottom:4px">{{ t.name_en }}</div>{% endif %}
+        {% if t.description %}<div style="font-size:11px;color:var(--fg);line-height:1.4;margin-bottom:5px">{{ t.description }}</div>{% endif %}
+        <span style="font-size:10px;color:var(--muted)">{{ t.n_apps }} App · {{ t.n_web }} Web · 📡{{ t.n_tiktok + t.n_youtube + t.n_reddit }}</span>
+      </td>
+
+      {# 市场体量：总 review + 均评分 #}
+      <td>
+        <div style="font-size:18px;font-weight:700;color:var(--blue);line-height:1">{{ t.total_reviews|num }}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">reviews{% if t.avg_rating %} · {{ "%.1f"|format(t.avg_rating) }}★{% endif %}</div>
+      </td>
+
+      {# 头部竞品：top 3 app name + review 数 #}
+      <td class="wrap">
+        {% for a in t.apps[:3] %}
+        <div style="margin-bottom:4px;line-height:1.2">
+          <span style="font-size:12px;font-weight:600">{{ a.name }}</span>
+          <span style="font-size:11px;color:var(--muted)"> {{ (a.review_count or 0)|num }}</span>
+        </div>
+        {% else %}
+        <span style="color:var(--muted);font-size:12px">—</span>
+        {% endfor %}
+      </td>
+
+      {# 搜索需求：赛道特征词 + 搜索量 + 渠道汇总 #}
+      <td class="wrap">
+        {% if t.track_keywords_enriched %}
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px">
+          {% for kw in t.track_keywords_enriched[:5] %}
+          <span style="background:var(--soft);border:1px solid var(--border);border-radius:10px;
+                       padding:2px 7px;font-size:11px;white-space:nowrap">
+            {{ kw.keyword }}
+            {% if kw.sv %}
+            <span style="color:{% if kw.channel=='app' %}var(--green){% else %}var(--blue){% endif %};
+                         font-weight:600;margin-left:2px">{{ kw.sv|num }}</span>
+            {% endif %}
+          </span>
+          {% endfor %}
+        </div>
+        <div style="font-size:11px;color:var(--muted);display:flex;gap:10px">
+          {% if t.aso_total_sv %}
+          <span>📱 ASO <b style="color:var(--green)">{{ t.aso_total_sv|num }}</b></span>
+          {% endif %}
+          {% if t.google_total_sv %}
+          <span>🔍 Web <b style="color:var(--blue)">{{ t.google_total_sv|num }}</b></span>
+          {% endif %}
+          {% if not t.aso_total_sv and not t.google_total_sv %}
+          <span style="color:var(--muted)">暂无量化数据</span>
+          {% endif %}
+        </div>
+        {% else %}
+        <span style="color:var(--muted);font-size:12px">—</span>
+        {% endif %}
+      </td>
+
+      {# 传播钩子：top TikTok 文本 or YouTube 标题 #}
+      <td class="wrap" style="max-width:260px">
+        {% if t.tiktok %}
+        <div style="font-size:12px;color:var(--fg);line-height:1.4;font-style:italic">"{{ t.tiktok[0].text_short }}"</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">TikTok · {{ (t.tiktok[0].plays or 0)|num }} 播放</div>
+        {% elif t.youtube %}
+        <div style="font-size:12px;color:var(--fg);line-height:1.4;font-style:italic">"{{ t.youtube[0].title }}"</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">YouTube · {{ (t.youtube[0].views or 0)|num }} 观看</div>
+        {% else %}
+        <span style="color:var(--muted);font-size:12px">暂无社交数据</span>
+        {% endif %}
+      </td>
+    </tr>
     {% endfor %}
-  </div>
+    </tbody>
+  </table>
   {% else %}
   <p style="color:var(--muted)">暂无赛道数据。运行 <code>cluster-competitors</code> 后重新导出。</p>
   {% endif %}
@@ -348,10 +430,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-
 <!-- ══════════ TRACK DETAIL ══════════ -->
 {% for t in tracks %}
 <section class="page-section" data-route="/track/{{ t.id }}">
-  <div class="breadcrumb"><a href="#/tracks" data-nav>赛道全景</a> › 赛道 #{{ t.id }}</div>
+  <div class="breadcrumb"><a href="#/tracks" data-nav>赛道总览</a> › 赛道 #{{ t.id }}</div>
   <div class="page-head">
     <h2>{{ t.label }}</h2>
-    <div class="sub">{{ t.n_apps }} 个竞品 App · {{ t.keywords|length }} 个 ASO 词 · {{ t.reviews|length }} 条差评</div>
+    <div class="sub">赛道 #{{ t.id }} · {{ t.n_apps }} App · {{ t.n_web }} Web · {{ t.n_tiktok + t.n_youtube + t.n_reddit }} 社媒信号</div>
   </div>
 
   {% if t.top_keywords %}
@@ -361,53 +443,194 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-
   </div>
   {% endif %}
 
-  {% if t.apps %}
-  <h3 style="margin:20px 0 10px;font-size:15px">🏢 竞品 App</h3>
-  <table class="cia-table display compact" style="width:100%">
-    <thead><tr><th>App</th><th>开发者</th><th>评分</th><th>评论数</th><th>定价</th><th>分类</th><th>链接</th></tr></thead>
-    <tbody>
-    {% for a in t.apps %}
-    <tr>
-      <td><b>{{ a.name }}</b></td>
-      <td>{{ a.developer }}</td>
-      <td>{{ "%.1f"|format(a.rating) if a.rating else "—" }}</td>
-      <td class="num">{{ a.review_count|num }}</td>
-      <td>{{ a.price or "免费" }}</td>
-      <td>{{ a.category }}</td>
-      <td class="url-cell">{% if a.url %}<a href="{{ a.url }}" target="_blank">App Store ↗</a>{% endif %}</td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-
-  {% if t.keywords %}
-  <h3 style="margin:24px 0 10px;font-size:15px">🔑 ASO 关键词（Top 30）</h3>
-  <table class="cia-table display compact" style="width:100%">
-    <thead><tr><th>关键词</th><th>搜索量</th><th>排名</th><th>App</th></tr></thead>
-    <tbody>
-    {% for k in t.keywords %}
-    <tr>
-      <td>{{ k.keyword }}</td>
-      <td class="num">{{ k.search_volume|num }}</td>
-      <td class="num">{{ k.rank or "—" }}</td>
-      <td>{{ k.app_name or k.app_id }}</td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-
-  {% if t.reviews %}
-  <h3 style="margin:24px 0 10px;font-size:15px">💔 用户差评</h3>
-  {% for r in t.reviews[:15] %}
-  <div class="review-item">
-    <div class="review-stars">{{ "★" * (r.rating|int) }}{{ "☆" * (5 - r.rating|int) }} {{ r.rating }}/5</div>
-    <div class="review-body">{{ r.body }}</div>
-    <div class="review-meta">{{ r.app_id }} · {{ r.posted_at }}</div>
+  <!-- Three-layer tab buttons -->
+  <div class="track-tabs">
+    <button class="tab-btn active" onclick="switchTab({{ t.id }},'social',this)">
+      📡 传播 <span class="nav-badge" style="margin-left:4px">{{ t.n_tiktok + t.n_youtube + t.n_reddit }}</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab({{ t.id }},'demand',this)">
+      🔍 需求 <span class="nav-badge" style="margin-left:4px">{{ t.n_aso_kw + t.n_google_kw }}</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab({{ t.id }},'supply',this)">
+      🏢 供给 <span class="nav-badge" style="margin-left:4px">{{ t.n_apps + t.n_web }}</span>
+    </button>
   </div>
-  {% endfor %}
-  {% endif %}
+
+  <!-- ── 传播 tab ─────────────────────────────────────── -->
+  <div class="tab-pane active" data-tab="social">
+    {% if t.tiktok %}
+    <h3 style="margin:0 0 10px;font-size:15px">TikTok ({{ t.tiktok|length }})</h3>
+    <div class="card-grid" style="margin-bottom:28px">
+    {% for v in t.tiktok %}
+    <a class="tt-card" href="{{ v.url }}" target="_blank" rel="noopener"
+       data-plays="{{ v.plays or 0 }}" data-sr="{{ v.share_rate or 0 }}"
+       data-text="{{ (v.text or '')|lower }}" data-author="{{ (v.author or '')|lower }}"
+       data-query="{{ (v.query or '')|lower }}">
+      <div class="tt-meta">
+        <span class="metric primary">▶ {{ (v.plays or 0)|num }}</span>
+        <span class="metric {{ 'hot' if v.is_hot else 'muted' }}">
+          {% if v.is_hot %}<span class="chip chip-hot">🔥 {{ "%.2f"|format((v.share_rate or 0)*100) }}%</span>
+          {% else %}{{ "%.3f"|format((v.share_rate or 0)*100) }}% share{% endif %}
+        </span>
+        <span class="metric muted">♥ {{ (v.likes or 0)|num }}</span>
+      </div>
+      <div class="tt-text">{{ v.text_short }}</div>
+      {% if v.text_zh %}<div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;font-style:italic">{{ v.text_zh }}</div>{% endif %}
+      <div class="tt-foot" style="margin-top:6px">
+        <span style="color:var(--muted)">@{{ v.author or "—" }}</span>
+        <span class="chip">{{ v.query or "" }}</span>
+      </div>
+    </a>
+    {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if t.youtube %}
+    <h3 style="margin:0 0 10px;font-size:15px">YouTube ({{ t.youtube|length }})</h3>
+    <div class="yt-grid" style="margin-bottom:28px">
+    {% for v in t.youtube %}
+    <a class="yt-card" href="{{ v.url }}" target="_blank" rel="noopener">
+      <div class="yt-thumb">
+        {% if v.video_id %}
+        <img src="https://img.youtube.com/vi/{{ v.video_id }}/mqdefault.jpg"
+             loading="lazy" alt="" width="320" height="180"
+             onerror="this.parentNode.innerHTML='<div class=yt-thumb-fb>▶</div>'">
+        {% else %}
+        <div class="yt-thumb-fb">▶</div>
+        {% endif %}
+        {% if v.duration_seconds %}<span class="yt-dur">{{ v.duration_seconds|hms }}</span>{% endif %}
+      </div>
+      <div class="yt-body">
+        <div class="yt-title">{{ v.title }}</div>
+        {% if v.title_zh %}<div style="font-size:11px;color:var(--muted);margin-top:2px;font-style:italic">{{ v.title_zh }}</div>{% endif %}
+        <div class="yt-channel" style="margin-top:4px">{{ v.channel }}</div>
+        <div class="yt-stats"><b>{{ (v.views or 0)|num }}</b> 次观看 · {{ (v.likes or 0)|num }} ♥</div>
+        {% if v.query %}<span class="chip yt-query">{{ v.query }}</span>{% endif %}
+      </div>
+    </a>
+    {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if t.reddit %}
+    <h3 style="margin:0 0 10px;font-size:15px">Reddit ({{ t.reddit|length }})</h3>
+    {% for r in t.reddit %}
+    <div class="reddit-item">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+        <span class="reddit-score">↑ {{ (r.score or 0)|num }}</span>
+        <span class="chip">r/{{ r.subreddit }}</span>
+        {% if r.query %}<span class="chip">{{ r.query }}</span>{% endif %}
+      </div>
+      <div class="reddit-title">
+        {% if r.url %}<a href="{{ r.url }}" target="_blank" style="color:var(--fg);text-decoration:none">{{ r.title }}</a>{% else %}{{ r.title }}{% endif %}
+      </div>
+      {% if r.title_zh %}<div style="font-size:12px;color:var(--muted);margin-top:3px;font-style:italic">{{ r.title_zh }}</div>{% endif %}
+      {% if r.body %}<div class="reddit-body" style="margin-top:6px">{{ r.body[:200] }}{% if r.body|length > 200 %}…{% endif %}</div>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if not t.tiktok and not t.youtube and not t.reddit %}
+    <p style="color:var(--muted);padding:24px 0">暂无社交媒体数据。运行 <code>assign-to-clusters</code> 后重新导出。</p>
+    {% endif %}
+  </div>
+
+  <!-- ── 需求 tab ─────────────────────────────────────── -->
+  <div class="tab-pane" data-tab="demand">
+    {% if t.keywords %}
+    <h3 style="margin:0 0 10px;font-size:15px">ASO 关键词（{{ t.keywords|length }}）</h3>
+    <table class="cia-table display compact" style="width:100%;margin-bottom:28px">
+      <thead><tr><th>关键词</th><th>搜索量</th><th>排名</th><th>App</th></tr></thead>
+      <tbody>
+      {% for k in t.keywords %}
+      <tr>
+        <td>{{ k.keyword }}</td>
+        <td class="num">{{ (k.search_volume or 0)|num }}</td>
+        <td class="num">{{ k.rank or "—" }}</td>
+        <td style="font-size:12px;color:var(--muted)">{{ k.app_name or k.app_id }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {% if t.google_kw %}
+    <h3 style="margin:0 0 10px;font-size:15px">Google 关键词（{{ t.google_kw|length }}）</h3>
+    <table class="cia-table display compact" style="width:100%;margin-bottom:28px">
+      <thead><tr><th>关键词</th><th>月搜索量</th><th>KD</th><th>CPC</th><th>Intent</th></tr></thead>
+      <tbody>
+      {% for k in t.google_kw %}
+      <tr>
+        <td>{{ k.keyword }}</td>
+        <td class="num">{{ (k.volume or 0)|num }}</td>
+        <td class="num"><span class="kd-{{ k.kd|kd_bucket }}">{{ k.kd or "—" }}</span></td>
+        <td class="num">{{ "$%.2f"|format(k.cpc_usd) if k.cpc_usd else "—" }}</td>
+        <td>{% if k.intent %}<span class="intent-{{ k.intent }}">{{ k.intent }}</span>{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {% if not t.keywords and not t.google_kw %}
+    <p style="color:var(--muted);padding:24px 0">暂无需求数据。</p>
+    {% endif %}
+  </div>
+
+  <!-- ── 供给 tab ─────────────────────────────────────── -->
+  <div class="tab-pane" data-tab="supply">
+    {% if t.apps %}
+    <h3 style="margin:0 0 10px;font-size:15px">🏢 竞品 App（{{ t.apps|length }}）</h3>
+    <table class="cia-table display compact" style="width:100%;margin-bottom:28px">
+      <thead><tr><th>App</th><th>开发者</th><th>评分</th><th>评论数</th><th>定价</th><th>分类</th><th>链接</th></tr></thead>
+      <tbody>
+      {% for a in t.apps %}
+      <tr>
+        <td><b>{{ a.name }}</b></td>
+        <td>{{ a.developer }}</td>
+        <td class="num">{{ "%.1f"|format(a.rating) if a.rating else "—" }}</td>
+        <td class="num">{{ (a.review_count or 0)|num }}</td>
+        <td>{{ a.price or "免费" }}</td>
+        <td style="font-size:12px">{{ a.category }}</td>
+        <td class="url-cell">{% if a.url %}<a href="{{ a.url }}" target="_blank">App Store ↗</a>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    {% if t.web_comps %}
+    <h3 style="margin:0 0 10px;font-size:15px">🌐 竞品官网（{{ t.web_comps|length }}）</h3>
+    {% set max_t = t.web_comps[0].monthly_organic_traffic if t.web_comps else 1 %}
+    {% for c in t.web_comps %}
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <a href="https://{{ c.domain }}" target="_blank" style="font-weight:600;font-size:13px;color:var(--blue);text-decoration:none">{{ c.domain }}</a>
+        <span style="font-weight:700;font-size:14px">{{ (c.monthly_organic_traffic or 0)|num }}<span style="font-size:11px;font-weight:400;color:var(--muted)">/月</span></span>
+      </div>
+      <div class="comp-bar-wrap">
+        <div class="comp-bar" style="width:{{ [((c.monthly_organic_traffic or 0) / ([max_t, 1]|max) * 100)|int, 100]|min }}%"></div>
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if t.reviews %}
+    <h3 style="margin:24px 0 10px;font-size:15px">💔 差评（{{ t.reviews|length }}）</h3>
+    {% for r in t.reviews %}
+    <div class="review-item">
+      <div class="review-stars">{{ "★" * (r.rating|int) }}{{ "☆" * (5 - r.rating|int) }} {{ r.rating }}/5</div>
+      <div class="review-body">{{ r.body }}</div>
+      <div class="review-meta">{{ r.app_id }} · {{ r.posted_at }}</div>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if not t.apps and not t.web_comps %}
+    <p style="color:var(--muted);padding:24px 0">暂无供给数据。</p>
+    {% endif %}
+  </div>
+
 </section>
 {% endfor %}
 
@@ -793,6 +1016,17 @@ function filterCards(cls, q) {
     const auth = card.dataset.author || '';
     const qry  = card.dataset.query || '';
     card.style.display = (!lq || text.includes(lq) || auth.includes(lq) || qry.includes(lq)) ? '' : 'none';
+  });
+}
+
+// ── Track three-layer tabs ─────────────────────────────────────────────────
+function switchTab(trackId, tabName, btn) {
+  const sec = document.querySelector('[data-route="/track/' + trackId + '"]');
+  if (!sec) return;
+  sec.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  sec.querySelectorAll('.tab-pane').forEach(p => {
+    p.classList.toggle('active', p.dataset.tab === tabName);
   });
 }
 </script>

@@ -36,6 +36,19 @@ def _migrate(db_path: pathlib.Path) -> None:
             assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (source, item_id)
         )""",
+        # v3: LLM-defined track taxonomy
+        """CREATE TABLE IF NOT EXISTS tracks (
+            track_id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            name_en TEXT,
+            description TEXT,
+            keywords TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""",
+        # v3: add cluster_label + competitor_id columns to old DBs
+        "ALTER TABLE competitor_clusters ADD COLUMN cluster_label TEXT",
+        # competitor_id mirrors app_id for backward compat with new queries
+        "ALTER TABLE competitor_clusters ADD COLUMN competitor_id TEXT",
     ]
     with sqlite3.connect(db_path) as con:
         for sql in migrations:

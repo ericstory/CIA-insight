@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CIA — {{ topic }}</title>
+<link rel="stylesheet" href="https://cdn.datatables.net/2.1.8/css/dataTables.dataTables.min.css">
+<link rel="stylesheet" href="https://cdn.datatables.net/buttons/3.2.0/css/buttons.dataTables.min.css">
+<style>
+:root {
+  --fg:#1f2328; --muted:#57606a; --bg:#f6f8fa; --card:#ffffff;
+  --border:#d0d7de; --soft:#eaf0f8;
+  --blue:#0969da; --green:#1a7f37; --orange:#9a6700; --red:#cf222e;
+  --sidebar-w:220px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;
+     background:var(--bg);color:var(--fg);line-height:1.55;display:flex;min-height:100vh}
+
+/* ── SIDEBAR ── */
+#sidebar{
+  width:var(--sidebar-w);min-width:var(--sidebar-w);background:#fff;
+  border-right:1px solid var(--border);position:fixed;top:0;left:0;
+  height:100vh;overflow-y:auto;display:flex;flex-direction:column;z-index:200;
+  padding-bottom:24px;
+}
+.sidebar-brand{padding:16px 18px 12px;border-bottom:1px solid var(--border)}
+.sidebar-brand .logo{font-weight:700;font-size:15px;color:var(--fg)}
+.sidebar-brand .topic{font-size:11px;color:var(--muted);margin-top:2px;
+                       white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-section{padding:10px 0 4px 14px;font-size:10px;font-weight:600;
+             color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.nav-item{display:flex;align-items:center;justify-content:space-between;
+          padding:6px 14px 6px 18px;font-size:13px;color:var(--fg);
+          text-decoration:none;cursor:pointer;border-left:3px solid transparent}
+.nav-item:hover{background:var(--soft)}
+.nav-item.active{border-left-color:var(--blue);color:var(--blue);
+                 background:var(--soft);font-weight:500}
+.nav-badge{background:var(--soft);color:var(--muted);border-radius:10px;
+           padding:1px 7px;font-size:10px;font-weight:500}
+.nav-item.active .nav-badge{background:#dbeafe;color:var(--blue)}
+
+/* ── MAIN ── */
+#main{margin-left:var(--sidebar-w);flex:1;min-width:0;padding:28px 32px 60px}
+.page-section{display:none}
+.page-section.active{display:block}
+
+/* ── PAGE HEADER ── */
+.page-head{margin-bottom:20px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.page-head h2{font-size:20px;font-weight:700;margin-bottom:4px}
+.page-head .sub{color:var(--muted);font-size:13px}
+.breadcrumb{font-size:12px;color:var(--muted);margin-bottom:8px}
+.breadcrumb a{color:var(--blue);text-decoration:none}
+
+/* ── KPI CARDS ── */
+.kpi-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:10px;
+     padding:14px 18px;min-width:120px;flex:1}
+.kpi-num{font-size:24px;font-weight:700;color:var(--blue);line-height:1}
+.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;
+            letter-spacing:.5px;margin-top:4px}
+
+/* ── ENTRY CARDS (overview shortcuts) ── */
+.entry-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:20px}
+.entry-card{background:var(--card);border:1px solid var(--border);border-radius:10px;
+            padding:16px;text-decoration:none;color:var(--fg);
+            transition:transform .12s,box-shadow .12s;display:block}
+.entry-card:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.07)}
+.entry-card .ec-icon{font-size:22px;margin-bottom:8px}
+.entry-card .ec-title{font-weight:600;font-size:14px}
+.entry-card .ec-count{font-size:12px;color:var(--muted);margin-top:4px}
+
+/* ── SYNTHESIS ── */
+.synthesis{background:var(--card);border:1px solid var(--border);border-radius:10px;
+           padding:28px 36px;margin-bottom:24px;max-width:900px}
+.synthesis h1{font-size:20px;margin:24px 0 10px;padding-bottom:6px;
+              border-bottom:2px solid var(--border);font-weight:700}
+.synthesis h1:first-child{margin-top:0}
+.synthesis h2{font-size:16px;margin:18px 0 8px;font-weight:600;
+              padding-left:10px;border-left:3px solid var(--blue)}
+.synthesis h3{font-size:14px;margin:14px 0 6px;font-weight:600;color:var(--muted)}
+.synthesis p{margin:8px 0;font-size:14px}
+.synthesis table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+.synthesis table th{background:var(--soft);padding:6px 10px;text-align:left;
+                     border:1px solid var(--border);font-weight:600}
+.synthesis table td{padding:6px 10px;border:1px solid var(--border)}
+.synthesis code{background:var(--soft);padding:1px 5px;border-radius:3px;font-size:12px}
+.synthesis pre{background:var(--soft);padding:12px;border-radius:6px;overflow-x:auto;
+               font-size:12px;margin:10px 0}
+
+/* ── TIKTOK CARDS ── */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.tt-card{background:var(--card);border:1px solid var(--border);border-radius:10px;
+         padding:14px;text-decoration:none;color:var(--fg);display:block;
+         transition:transform .12s,box-shadow .12s}
+.tt-card:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.07)}
+.tt-meta{display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.metric{font-size:13px;font-weight:600}
+.metric.primary{color:var(--fg)}
+.metric.hot{color:var(--red)}
+.metric.muted{color:var(--muted);font-weight:400}
+.tt-text{font-size:13px;line-height:1.45;color:var(--fg);margin-bottom:8px}
+.tt-foot{font-size:11px;color:var(--muted);display:flex;justify-content:space-between;
+          align-items:center}
+.chip{background:var(--soft);border:1px solid var(--border);border-radius:12px;
+      padding:2px 8px;font-size:11px;color:var(--muted)}
+.chip-hot{background:#fef2f2;border-color:#fecaca;color:var(--red)}
+.chip-ok{background:#f0fdf4;border-color:#bbf7d0;color:var(--green)}
+
+/* ── YOUTUBE CARDS ── */
+.yt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.yt-card{background:var(--card);border:1px solid var(--border);border-radius:10px;
+         overflow:hidden;text-decoration:none;color:var(--fg);
+         transition:transform .12s,box-shadow .12s;display:block}
+.yt-card:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.07)}
+.yt-thumb{position:relative;aspect-ratio:16/9;background:#0f0f0f;overflow:hidden}
+.yt-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.yt-thumb-fb{width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+              font-size:32px;color:#aaa}
+.yt-dur{position:absolute;bottom:6px;right:6px;background:rgba(0,0,0,.85);
+        color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:500}
+.yt-body{padding:10px 12px}
+.yt-title{font-weight:600;font-size:13px;line-height:1.35;margin-bottom:5px;
+          display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.yt-channel{font-size:11px;color:var(--muted);margin-bottom:4px}
+.yt-stats{font-size:11px;color:var(--muted)}
+.yt-stats b{color:var(--fg);font-variant-numeric:tabular-nums}
+.yt-query{display:inline-block;margin-top:6px}
+
+/* ── FILTER CHIPS ── */
+.filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.filter-chip{background:var(--card);border:1px solid var(--border);border-radius:16px;
+             padding:4px 12px;font-size:12px;cursor:pointer;color:var(--muted);
+             transition:all .12s;white-space:nowrap}
+.filter-chip:hover{border-color:var(--blue);color:var(--blue)}
+.filter-chip.active{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:500}
+
+/* ── KD BADGES ── */
+.kd-easy{background:#d1fae5;color:#065f46;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:600}
+.kd-med{background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:600}
+.kd-hard{background:#fee2e2;color:#991b1b;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:600}
+.intent-transactional,.intent-commercial{background:#d1fae5;color:#065f46;border-radius:4px;padding:1px 6px;font-size:11px}
+.intent-informational{background:#f0f9ff;color:#0369a1;border-radius:4px;padding:1px 6px;font-size:11px}
+.intent-navigational{background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 6px;font-size:11px}
+
+/* ── TABLES ── */
+.cia-table{width:100% !important}
+.cia-table td,.cia-table th{white-space:nowrap;vertical-align:middle}
+.cia-table td.wrap{white-space:normal;max-width:340px;font-size:12px}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.url-cell a{color:var(--blue);text-decoration:none;font-size:11px}
+.url-cell a:hover{text-decoration:underline}
+
+/* ── TRACK CARDS ── */
+.track-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.track-card{background:var(--card);border:1px solid var(--border);border-radius:10px;
+            padding:16px;text-decoration:none;color:var(--fg);display:block;
+            transition:transform .12s,box-shadow .12s}
+.track-card:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.07)}
+.track-card .track-id{font-size:11px;color:var(--muted);margin-bottom:4px}
+.track-card .track-label{font-size:15px;font-weight:600;margin-bottom:8px}
+.track-card .track-meta{font-size:12px;color:var(--muted);display:flex;gap:12px}
+.kw-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.kw-tag{background:var(--soft);border:1px solid var(--border);border-radius:10px;
+        padding:2px 8px;font-size:11px;color:var(--muted)}
+
+/* ── REVIEWS ── */
+.review-item{background:var(--card);border:1px solid var(--border);border-radius:8px;
+             padding:12px 14px;margin-bottom:10px}
+.review-stars{color:var(--orange);font-size:13px;margin-bottom:4px}
+.review-body{font-size:13px;line-height:1.5;color:var(--fg)}
+.review-meta{font-size:11px;color:var(--muted);margin-top:6px}
+
+/* ── SEARCH BAR ── */
+.search-bar{width:100%;max-width:360px;padding:7px 12px;border:1px solid var(--border);
+            border-radius:6px;font-size:13px;margin-bottom:14px}
+
+/* ── REDDIT ── */
+.reddit-item{background:var(--card);border:1px solid var(--border);border-radius:8px;
+             padding:12px 14px;margin-bottom:10px}
+.reddit-score{font-weight:700;color:var(--orange);font-size:13px}
+.reddit-title{font-size:14px;font-weight:600;margin:4px 0}
+.reddit-body{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.45}
+
+/* ── COMP WEB ── */
+.comp-bar-wrap{background:var(--soft);border-radius:4px;height:8px;margin-top:4px;width:100%}
+.comp-bar{background:var(--blue);height:8px;border-radius:4px}
+
+/* ── MOBILE ── */
+@media(max-width:768px){
+  #sidebar{transform:translateX(-100%);transition:transform .2s}
+  #sidebar.open{transform:translateX(0)}
+  #main{margin-left:0;padding:16px}
+  .hamburger{display:block !important}
+}
+.hamburger{display:none;position:fixed;top:12px;left:12px;z-index:300;
+           background:var(--card);border:1px solid var(--border);border-radius:6px;
+           width:36px;height:36px;cursor:pointer;font-size:18px;
+           align-items:center;justify-content:center}
+</style>
+</head>
+<body>
+
+<button class="hamburger" id="hamburger" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+
+<!-- SIDEBAR -->
+<nav id="sidebar">
+  <div class="sidebar-brand">
+    <div class="logo">CIA 情报</div>
+    <div class="topic">{{ topic }}</div>
+  </div>
+
+  <div class="nav-section">概览</div>
+  <a class="nav-item" href="#/overview" data-nav>
+    🏠 Overview
+    {% if synthesis_html %}<span class="nav-badge">有分析</span>{% endif %}
+  </a>
+  <a class="nav-item" href="#/tracks" data-nav>
+    🗺 赛道 <span class="nav-badge">{{ tracks|length }}</span>
+  </a>
+
+  <div class="nav-section">传播侧</div>
+  <a class="nav-item" href="#/social/tiktok" data-nav>
+    TikTok <span class="nav-badge">{{ stats.social_tiktok }}</span>
+  </a>
+  <a class="nav-item" href="#/social/youtube" data-nav>
+    YouTube <span class="nav-badge">{{ stats.social_youtube }}</span>
+  </a>
+  <a class="nav-item" href="#/social/reddit" data-nav>
+    Reddit <span class="nav-badge">{{ stats.social_reddit }}</span>
+  </a>
+
+  <div class="nav-section">需求侧</div>
+  <a class="nav-item" href="#/keywords/google" data-nav>
+    Google KW <span class="nav-badge">{{ stats.keywords_google }}</span>
+  </a>
+  {% if kw_golden %}
+  <a class="nav-item" href="#/keywords/golden" data-nav>
+    ⭐ Golden KW <span class="nav-badge">{{ kw_golden|length }}</span>
+  </a>
+  {% endif %}
+  {% if kw_aso %}
+  <a class="nav-item" href="#/keywords/aso" data-nav>
+    ASO 词 <span class="nav-badge">{{ stats.appstore_keywords }}</span>
+  </a>
+  {% endif %}
+  {% if kw_gaps %}
+  <a class="nav-item" href="#/keywords/gaps" data-nav>
+    蓝海词 <span class="nav-badge">{{ kw_gaps|length }}</span>
+  </a>
+  {% endif %}
+
+  <div class="nav-section">供给侧</div>
+  {% if comp_web %}
+  <a class="nav-item" href="#/competitors/web" data-nav>
+    竞品官网 <span class="nav-badge">{{ comp_web|length }}</span>
+  </a>
+  {% endif %}
+  {% if comp_apps %}
+  <a class="nav-item" href="#/competitors/apps" data-nav>
+    竞品 App <span class="nav-badge">{{ stats.competitors_app }}</span>
+  </a>
+  {% endif %}
+  {% if reviews %}
+  <a class="nav-item" href="#/reviews" data-nav>
+    💔 差评 <span class="nav-badge">{{ reviews|length }}</span>
+  </a>
+  {% endif %}
+  {% if ai_vis %}
+  <a class="nav-item" href="#/ai-visibility" data-nav>
+    AI 引用 <span class="nav-badge">{{ ai_vis|length }}</span>
+  </a>
+  {% endif %}
+
+  <div class="nav-section">系统</div>
+  <a class="nav-item" href="#/log" data-nav>
+    Fetch Log <span class="nav-badge">{{ fetch_log|length }}</span>
+  </a>
+
+  <div style="padding:16px 14px 0;font-size:11px;color:var(--muted);margin-top:auto">
+    生成于 {{ generated_at }}<br>
+    总成本 ${{ "%.4f"|format(total_cost) }}
+  </div>
+</nav>
+
+<!-- MAIN -->
+<main id="main">
+
+<!-- ══════════ OVERVIEW ══════════ -->
+<section class="page-section" data-route="/overview">
+  <div class="page-head">
+    <h2>CIA 情报报告</h2>
+    <div class="sub">{{ topic }} · {{ generated_at }} · ${{ "%.4f"|format(total_cost) }}</div>
+  </div>
+
+  <div class="kpi-row">
+    <div class="kpi"><div class="kpi-num">{{ stats.social_tiktok|num }}</div><div class="kpi-label">TikTok</div></div>
+    <div class="kpi"><div class="kpi-num">{{ stats.social_youtube|num }}</div><div class="kpi-label">YouTube</div></div>
+    <div class="kpi"><div class="kpi-num">{{ stats.keywords_google|num }}</div><div class="kpi-label">Google KW</div></div>
+    <div class="kpi"><div class="kpi-num">{{ kw_golden|length }}</div><div class="kpi-label">Golden KW</div></div>
+    <div class="kpi"><div class="kpi-num">{{ stats.competitors_app|num }}</div><div class="kpi-label">竞品 App</div></div>
+    <div class="kpi"><div class="kpi-num">{{ comp_web|length }}</div><div class="kpi-label">竞品官网</div></div>
+    <div class="kpi"><div class="kpi-num">{{ tracks|length }}</div><div class="kpi-label">赛道</div></div>
+  </div>
+
+  {% if synthesis_html %}
+  <div class="synthesis">{{ synthesis_html|safe }}</div>
+  {% endif %}
+
+  <div class="entry-grid">
+    {% if tracks %}<a class="entry-card" href="#/tracks" data-nav><div class="ec-icon">🗺</div><div class="ec-title">赛道全景</div><div class="ec-count">{{ tracks|length }} 条赛道</div></a>{% endif %}
+    {% if tiktok %}<a class="entry-card" href="#/social/tiktok" data-nav><div class="ec-icon">TikTok</div><div class="ec-title">传播侧 · TikTok</div><div class="ec-count">{{ tiktok|length }} 条视频</div></a>{% endif %}
+    {% if youtube %}<a class="entry-card" href="#/social/youtube" data-nav><div class="ec-icon">▶️</div><div class="ec-title">传播侧 · YouTube</div><div class="ec-count">{{ youtube|length }} 条视频</div></a>{% endif %}
+    {% if kw_all %}<a class="entry-card" href="#/keywords/google" data-nav><div class="ec-icon">🔍</div><div class="ec-title">Google 关键词</div><div class="ec-count">{{ kw_all|length }} 条</div></a>{% endif %}
+    {% if comp_web %}<a class="entry-card" href="#/competitors/web" data-nav><div class="ec-icon">🌐</div><div class="ec-title">竞品官网流量</div><div class="ec-count">{{ comp_web|length }} 个域名</div></a>{% endif %}
+    {% if reviews %}<a class="entry-card" href="#/reviews" data-nav><div class="ec-icon">💔</div><div class="ec-title">用户差评</div><div class="ec-count">{{ reviews|length }} 条</div></a>{% endif %}
+  </div>
+</section>
+
+<!-- ══════════ TRACKS ══════════ -->
+<section class="page-section" data-route="/tracks">
+  <div class="page-head">
+    <h2>🗺 赛道全景</h2>
+    <div class="sub">{{ tracks|length }} 条赛道，按竞品数量排序</div>
+  </div>
+  {% if tracks %}
+  <div class="track-grid">
+    {% for t in tracks %}
+    <a class="track-card" href="#/track/{{ t.id }}" data-nav>
+      <div class="track-id">赛道 #{{ t.id }}</div>
+      <div class="track-label">{{ t.label }}</div>
+      <div class="track-meta">
+        <span>📱 {{ t.n_apps }} 个竞品</span>
+        <span>🔑 {{ t.keywords|length }} 词</span>
+        <span>💔 {{ t.reviews|length }} 差评</span>
+      </div>
+      <div class="kw-tags">
+        {% for kw in t.top_keywords[:5] %}{% if kw.strip() %}<span class="kw-tag">{{ kw.strip() }}</span>{% endif %}{% endfor %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p style="color:var(--muted)">暂无赛道数据。运行 <code>cluster-competitors</code> 后重新导出。</p>
+  {% endif %}
+</section>
+
+<!-- ══════════ TRACK DETAIL ══════════ -->
+{% for t in tracks %}
+<section class="page-section" data-route="/track/{{ t.id }}">
+  <div class="breadcrumb"><a href="#/tracks" data-nav>赛道全景</a> › 赛道 #{{ t.id }}</div>
+  <div class="page-head">
+    <h2>{{ t.label }}</h2>
+    <div class="sub">{{ t.n_apps }} 个竞品 App · {{ t.keywords|length }} 个 ASO 词 · {{ t.reviews|length }} 条差评</div>
+  </div>
+
+  {% if t.top_keywords %}
+  <div style="margin-bottom:16px">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">核心词</div>
+    <div class="kw-tags">{% for kw in t.top_keywords %}{% if kw.strip() %}<span class="kw-tag">{{ kw.strip() }}</span>{% endif %}{% endfor %}</div>
+  </div>
+  {% endif %}
+
+  {% if t.apps %}
+  <h3 style="margin:20px 0 10px;font-size:15px">🏢 竞品 App</h3>
+  <table class="cia-table display compact" style="width:100%">
+    <thead><tr><th>App</th><th>开发者</th><th>评分</th><th>评论数</th><th>定价</th><th>分类</th><th>链接</th></tr></thead>
+    <tbody>
+    {% for a in t.apps %}
+    <tr>
+      <td><b>{{ a.name }}</b></td>
+      <td>{{ a.developer }}</td>
+      <td>{{ "%.1f"|format(a.rating) if a.rating else "—" }}</td>
+      <td class="num">{{ a.review_count|num }}</td>
+      <td>{{ a.price or "免费" }}</td>
+      <td>{{ a.category }}</td>
+      <td class="url-cell">{% if a.url %}<a href="{{ a.url }}" target="_blank">App Store ↗</a>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if t.keywords %}
+  <h3 style="margin:24px 0 10px;font-size:15px">🔑 ASO 关键词（Top 30）</h3>
+  <table class="cia-table display compact" style="width:100%">
+    <thead><tr><th>关键词</th><th>搜索量</th><th>排名</th><th>App</th></tr></thead>
+    <tbody>
+    {% for k in t.keywords %}
+    <tr>
+      <td>{{ k.keyword }}</td>
+      <td class="num">{{ k.search_volume|num }}</td>
+      <td class="num">{{ k.rank or "—" }}</td>
+      <td>{{ k.app_name or k.app_id }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if t.reviews %}
+  <h3 style="margin:24px 0 10px;font-size:15px">💔 用户差评</h3>
+  {% for r in t.reviews[:15] %}
+  <div class="review-item">
+    <div class="review-stars">{{ "★" * (r.rating|int) }}{{ "☆" * (5 - r.rating|int) }} {{ r.rating }}/5</div>
+    <div class="review-body">{{ r.body }}</div>
+    <div class="review-meta">{{ r.app_id }} · {{ r.posted_at }}</div>
+  </div>
+  {% endfor %}
+  {% endif %}
+</section>
+{% endfor %}
+
+<!-- ══════════ TIKTOK ══════════ -->
+<section class="page-section" data-route="/social/tiktok">
+  <div class="page-head">
+    <h2>TikTok 传播侧</h2>
+    <div class="sub">{{ tiktok|length }} 条 · share_rate ≥ 1% 为爆款</div>
+  </div>
+  <input class="search-bar" id="tt-search" placeholder="搜索文本 / 作者 / query…" oninput="filterCards('tt-card',this.value)">
+  <div class="filter-bar">
+    <span class="filter-chip active" onclick="filterTT('all',this)">全部 ({{ tiktok|length }})</span>
+    <span class="filter-chip" onclick="filterTT('hot',this)">🔥 爆款 share_rate ≥ 1%</span>
+    <span class="filter-chip" onclick="filterTT('100k',this)">▶ 10万+ 播放</span>
+  </div>
+  <div class="card-grid" id="tt-grid">
+  {% for t in tiktok %}
+  <a class="tt-card" href="{{ t.url }}" target="_blank" rel="noopener"
+     data-plays="{{ t.plays or 0 }}" data-sr="{{ t.share_rate or 0 }}"
+     data-text="{{ (t.text or '')|lower }}" data-author="{{ (t.author or '')|lower }}"
+     data-query="{{ (t.query or '')|lower }}">
+    <div class="tt-meta">
+      <span class="metric primary">▶ {{ (t.plays or 0)|num }}</span>
+      <span class="metric {{ 'hot' if t.is_hot else 'muted' }}">
+        {% if t.is_hot %}<span class="chip chip-hot">🔥 {{ "%.2f"|format((t.share_rate or 0)*100) }}%</span>
+        {% else %}{{ "%.3f"|format((t.share_rate or 0)*100) }}% share{% endif %}
+      </span>
+      <span class="metric muted">♥ {{ (t.likes or 0)|num }}</span>
+    </div>
+    <div class="tt-text">{{ t.text_short }}</div>
+    <div class="tt-foot">
+      <span style="color:var(--muted)">@{{ t.author or "—" }}</span>
+      <span class="chip">{{ t.query or "" }}</span>
+    </div>
+  </a>
+  {% endfor %}
+  </div>
+</section>
+
+<!-- ══════════ YOUTUBE ══════════ -->
+<section class="page-section" data-route="/social/youtube">
+  <div class="page-head">
+    <h2>YouTube 传播侧</h2>
+    <div class="sub">{{ youtube|length }} 条视频</div>
+  </div>
+  <input class="search-bar" id="yt-search" placeholder="搜索标题 / 频道 / query…" oninput="filterCards('yt-card',this.value)">
+  <div class="yt-grid" id="yt-grid">
+  {% for v in youtube %}
+  <a class="yt-card" href="{{ v.url }}" target="_blank" rel="noopener"
+     data-text="{{ (v.title or '')|lower }} {{ (v.channel or '')|lower }} {{ (v.query or '')|lower }}">
+    <div class="yt-thumb">
+      {% if v.video_id %}
+      <img src="https://img.youtube.com/vi/{{ v.video_id }}/mqdefault.jpg"
+           loading="lazy" alt="" width="320" height="180"
+           onerror="this.parentNode.innerHTML='<div class=yt-thumb-fb>▶</div>'">
+      {% else %}
+      <div class="yt-thumb-fb">▶</div>
+      {% endif %}
+      {% if v.duration_seconds %}<span class="yt-dur">{{ v.duration_seconds|hms }}</span>{% endif %}
+    </div>
+    <div class="yt-body">
+      <div class="yt-title">{{ v.title }}</div>
+      <div class="yt-channel">{{ v.channel }}</div>
+      <div class="yt-stats">
+        <b>{{ (v.views or 0)|num }}</b> 次观看 ·
+        {{ (v.likes or 0)|num }} ♥ ·
+        {{ (v.comments or 0)|num }} 💬
+      </div>
+      {% if v.query %}<span class="chip yt-query">{{ v.query }}</span>{% endif %}
+      {% if v.desc_short %}
+      <details style="margin-top:6px"><summary style="font-size:11px;color:var(--muted);cursor:pointer">简介</summary>
+        <p style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4">{{ v.desc_short }}</p>
+      </details>
+      {% endif %}
+    </div>
+  </a>
+  {% endfor %}
+  </div>
+</section>
+
+<!-- ══════════ REDDIT ══════════ -->
+<section class="page-section" data-route="/social/reddit">
+  <div class="page-head">
+    <h2>Reddit 讨论</h2>
+    <div class="sub">{{ reddit|length }} 条帖子</div>
+  </div>
+  {% for r in reddit %}
+  <div class="reddit-item">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+      <span class="reddit-score">↑ {{ (r.score or 0)|num }}</span>
+      <span class="chip">r/{{ r.subreddit }}</span>
+      {% if r.query %}<span class="chip">{{ r.query }}</span>{% endif %}
+    </div>
+    <div class="reddit-title">
+      {% if r.url %}<a href="{{ r.url }}" target="_blank" style="color:var(--fg);text-decoration:none">{{ r.title }}</a>{% else %}{{ r.title }}{% endif %}
+    </div>
+    {% if r.body %}<div class="reddit-body">{{ r.body[:300] }}{% if r.body|length > 300 %}…{% endif %}</div>{% endif %}
+    <div style="font-size:11px;color:var(--muted);margin-top:4px">
+      {{ r.num_comments or 0 }} 条评论 · @{{ r.author }}
+    </div>
+  </div>
+  {% endfor %}
+</section>
+
+<!-- ══════════ GOOGLE KW ══════════ -->
+<section class="page-section" data-route="/keywords/google">
+  <div class="page-head">
+    <h2>Google 关键词</h2>
+    <div class="sub">{{ kw_all|length }} 条 · 来自 Ahrefs Keywords Explorer</div>
+  </div>
+  <table class="cia-table display compact" id="dt-kw-google" style="width:100%">
+    <thead><tr><th>关键词</th><th>月搜索量</th><th>KD</th><th>CPC</th><th>Intent</th><th>国家</th><th>来源</th><th>溯源</th></tr></thead>
+    <tbody>
+    {% for k in kw_all %}
+    <tr>
+      <td><b>{{ k.keyword }}</b></td>
+      <td class="num">{{ (k.volume or 0)|num }}</td>
+      <td class="num"><span class="kd-{{ k.kd|kd_bucket }}">{{ k.kd or "—" }}</span></td>
+      <td class="num">{{ "$%.2f"|format(k.cpc_usd) if k.cpc_usd else "—" }}</td>
+      <td>{% if k.intent %}<span class="intent-{{ k.intent }}">{{ k.intent }}</span>{% else %}—{% endif %}</td>
+      <td>{{ k.country }}</td>
+      <td style="font-size:11px;color:var(--muted)">{{ k.source_seed or "—" }}</td>
+      <td class="url-cell">
+        <a href="https://www.google.com/search?q={{ k.keyword }}" target="_blank">🔍</a>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<!-- ══════════ GOLDEN KW ══════════ -->
+<section class="page-section" data-route="/keywords/golden">
+  <div class="page-head">
+    <h2>⭐ Golden Keywords</h2>
+    <div class="sub">vol ≥ 200 · KD ≤ 35 · CPC ≥ $1 — 立即可投/可做</div>
+  </div>
+  {% if kw_golden %}
+  <table class="cia-table display compact" id="dt-kw-golden" style="width:100%">
+    <thead><tr><th>关键词</th><th>月搜索量</th><th>KD</th><th>CPC</th><th>Intent</th><th>溯源</th></tr></thead>
+    <tbody>
+    {% for k in kw_golden %}
+    <tr>
+      <td><b>{{ k.keyword }}</b></td>
+      <td class="num">{{ (k.volume or 0)|num }}</td>
+      <td class="num"><span class="kd-{{ k.kd|kd_bucket }}">{{ k.kd or "—" }}</span></td>
+      <td class="num">{{ "$%.2f"|format(k.cpc_usd) if k.cpc_usd else "—" }}</td>
+      <td>{% if k.intent %}<span class="intent-{{ k.intent }}">{{ k.intent }}</span>{% else %}—{% endif %}</td>
+      <td class="url-cell"><a href="https://www.google.com/search?q={{ k.keyword }}" target="_blank">🔍</a></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:var(--muted)">当前数据集中暂无满足条件的 Golden Keywords（vol≥200 + KD≤35 + CPC≥$1）。</p>
+  {% endif %}
+</section>
+
+<!-- ══════════ ASO KW ══════════ -->
+<section class="page-section" data-route="/keywords/aso">
+  <div class="page-head">
+    <h2>ASO 关键词</h2>
+    <div class="sub">App Store 竞品实际排名词 · DataForSEO</div>
+  </div>
+  <table class="cia-table display compact" id="dt-kw-aso" style="width:100%">
+    <thead><tr><th>关键词</th><th>搜索量</th><th>排名</th><th>App</th></tr></thead>
+    <tbody>
+    {% for k in kw_aso %}
+    <tr>
+      <td>{{ k.keyword }}</td>
+      <td class="num">{{ (k.search_volume or 0)|num }}</td>
+      <td class="num">{{ k.rank or "—" }}</td>
+      <td style="font-size:12px;color:var(--muted)">{{ k.app_name or k.app_id }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<!-- ══════════ GAPS ══════════ -->
+<section class="page-section" data-route="/keywords/gaps">
+  <div class="page-head">
+    <h2>蓝海词 — ASO Keyword Gaps</h2>
+    <div class="sub">搜索量 ≥ 200 · 排名 App ≤ 3 个</div>
+  </div>
+  <table class="cia-table display compact" id="dt-kw-gaps" style="width:100%">
+    <thead><tr><th>关键词</th><th>搜索量</th><th>排名 App 数</th></tr></thead>
+    <tbody>
+    {% for k in kw_gaps %}
+    <tr>
+      <td><b>{{ k.keyword }}</b></td>
+      <td class="num">{{ (k.search_volume or 0)|num }}</td>
+      <td class="num"><span style="color:var(--green);font-weight:600">{{ k.n_apps }}</span></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<!-- ══════════ COMP WEB ══════════ -->
+<section class="page-section" data-route="/competitors/web">
+  <div class="page-head">
+    <h2>竞品官网 SEO</h2>
+    <div class="sub">{{ comp_web|length }} 个域名 · Ahrefs Site Explorer</div>
+  </div>
+  {% set max_traffic = comp_web[0].monthly_organic_traffic if comp_web else 1 %}
+  {% for c in comp_web %}
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div>
+        <a href="https://{{ c.domain }}" target="_blank" style="font-weight:600;font-size:14px;color:var(--blue);text-decoration:none">{{ c.domain }}</a>
+        <span style="font-size:12px;color:var(--muted);margin-left:10px">{{ (c.organic_keywords_count or 0)|num }} 个 KW</span>
+      </div>
+      <div style="font-size:16px;font-weight:700">{{ (c.monthly_organic_traffic or 0)|num }}<span style="font-size:11px;font-weight:400;color:var(--muted)"> /月</span></div>
+    </div>
+    <div class="comp-bar-wrap">
+      <div class="comp-bar" style="width:{{ [((c.monthly_organic_traffic or 0) / [max_traffic,1]|max * 100)|int, 100]|min }}%"></div>
+    </div>
+  </div>
+  {% endfor %}
+</section>
+
+<!-- ══════════ COMP APPS ══════════ -->
+<section class="page-section" data-route="/competitors/apps">
+  <div class="page-head">
+    <h2>竞品 App</h2>
+    <div class="sub">{{ comp_apps|length }} 个 App</div>
+  </div>
+  <table class="cia-table display compact" id="dt-comp-apps" style="width:100%">
+    <thead><tr><th>App</th><th>开发者</th><th>评分</th><th>评论数</th><th>定价</th><th>分类</th><th>链接</th></tr></thead>
+    <tbody>
+    {% for a in comp_apps %}
+    <tr>
+      <td><b>{{ a.name }}</b></td>
+      <td>{{ a.developer }}</td>
+      <td class="num">{{ "%.1f"|format(a.rating) if a.rating else "—" }}</td>
+      <td class="num">{{ (a.review_count or 0)|num }}</td>
+      <td>{{ a.price or "免费" }}</td>
+      <td style="font-size:12px">{{ a.category }}</td>
+      <td class="url-cell">{% if a.url %}<a href="{{ a.url }}" target="_blank">↗</a>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<!-- ══════════ REVIEWS ══════════ -->
+<section class="page-section" data-route="/reviews">
+  <div class="page-head">
+    <h2>💔 用户差评</h2>
+    <div class="sub">{{ reviews|length }} 条 1-3 星评论 · 按时间倒序</div>
+  </div>
+  {% for r in reviews %}
+  <div class="review-item">
+    <div class="review-stars">{{ "★" * (r.rating|int) }}{{ "☆" * (5 - r.rating|int) }}</div>
+    <div class="review-body">{{ r.body }}</div>
+    <div class="review-meta">{{ r.app_id }} · {{ r.posted_at }}</div>
+  </div>
+  {% endfor %}
+</section>
+
+<!-- ══════════ AI VISIBILITY ══════════ -->
+<section class="page-section" data-route="/ai-visibility">
+  <div class="page-head">
+    <h2>AI 引用份额</h2>
+    <div class="sub">Brand Radar · ChatGPT / Gemini / Perplexity</div>
+  </div>
+  {% if ai_vis %}
+  <table class="cia-table display compact" id="dt-ai-vis" style="width:100%">
+    <thead><tr><th>品牌</th><th>平台</th><th>SOV%</th><th>引用次数</th></tr></thead>
+    <tbody>
+    {% for a in ai_vis %}
+    <tr>
+      <td><b>{{ a.brand }}</b></td>
+      <td>{{ a.platform }}</td>
+      <td class="num">{{ "%.2f"|format(a.sov_pct or 0) }}%</td>
+      <td class="num">{{ (a.mentions or 0)|num }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:var(--muted)">暂无 AI 可见性数据（需要 Ahrefs Brand Radar 订阅）。</p>
+  {% endif %}
+</section>
+
+<!-- ══════════ LOG ══════════ -->
+<section class="page-section" data-route="/log">
+  <div class="page-head">
+    <h2>Fetch Log</h2>
+    <div class="sub">数据采集记录 · 总成本 ${{ "%.4f"|format(total_cost) }}</div>
+  </div>
+  <table class="cia-table display compact" id="dt-log" style="width:100%">
+    <thead><tr><th>时间</th><th>来源</th><th>操作</th><th>行数</th><th>耗时</th><th>成本</th></tr></thead>
+    <tbody>
+    {% for l in fetch_log %}
+    <tr>
+      <td style="font-size:11px">{{ l.fetched_at }}</td>
+      <td>{{ l.source }}</td>
+      <td style="font-size:12px">{{ l.operation }}</td>
+      <td class="num">{{ l.rows_inserted or "—" }}</td>
+      <td class="num">{{ l.duration_ms or "—" }}ms</td>
+      <td class="num">${{ "%.4f"|format(l.cost_usd or 0) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+</main>
+
+<!-- JS -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.datatables.net/2.1.8/js/dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/3.2.0/js/dataTables.buttons.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/3.2.0/js/buttons.html5.min.js"></script>
+<script>
+// ── Hash Router ────────────────────────────────────────────────────────────
+const sections = document.querySelectorAll('.page-section');
+const navLinks  = document.querySelectorAll('a[data-nav]');
+const dtInited  = new Set();
+
+function getRoute() {
+  return location.hash.replace(/^#/, '') || '/overview';
+}
+
+function activate() {
+  const route = getRoute();
+  sections.forEach(s => {
+    const active = s.dataset.route === route;
+    s.classList.toggle('active', active);
+    if (active && !dtInited.has(route)) {
+      s.querySelectorAll('table.cia-table').forEach(t => {
+        if (!$.fn.dataTable.isDataTable(t)) {
+          $(t).DataTable({
+            pageLength: 25,
+            order: [],
+            scrollX: true,
+            dom: 'Bfrtip',
+            buttons: [{ extend:'csv', text:'⬇ CSV' }]
+          });
+        }
+      });
+      dtInited.add(route);
+    }
+  });
+  navLinks.forEach(a => {
+    a.classList.toggle('active', a.getAttribute('href') === '#' + route);
+  });
+  window.scrollTo(0, 0);
+}
+
+window.addEventListener('hashchange', activate);
+// Handle data-nav clicks (works for both <a> and cards)
+document.addEventListener('click', e => {
+  const a = e.target.closest('[data-nav]');
+  if (a && a.getAttribute('href')?.startsWith('#')) {
+    e.preventDefault();
+    location.hash = a.getAttribute('href').slice(1);
+  }
+});
+activate();
+
+// ── TikTok filters ─────────────────────────────────────────────────────────
+function filterTT(mode, btn) {
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tt-card').forEach(card => {
+    const sr   = parseFloat(card.dataset.sr || 0);
+    const plays = parseInt(card.dataset.plays || 0);
+    let show = true;
+    if (mode === 'hot')  show = sr >= 0.01;
+    if (mode === '100k') show = plays >= 100000;
+    card.style.display = show ? '' : 'none';
+  });
+}
+
+// ── Generic card search ────────────────────────────────────────────────────
+function filterCards(cls, q) {
+  const lq = q.toLowerCase();
+  document.querySelectorAll('.' + cls).forEach(card => {
+    const text = card.dataset.text || '';
+    const auth = card.dataset.author || '';
+    const qry  = card.dataset.query || '';
+    card.style.display = (!lq || text.includes(lq) || auth.includes(lq) || qry.includes(lq)) ? '' : 'none';
+  });
+}
+</script>
+</body>
+</html>

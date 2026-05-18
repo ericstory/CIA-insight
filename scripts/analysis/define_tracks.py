@@ -18,8 +18,9 @@ from collections import Counter
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 import db
 import config
+import hub_client
 
-REPORTS_BASE = pathlib.Path.home() / "workspace/analytics/reports"
+REPORTS_BASE = pathlib.Path.home() / "workspace/CIA/reports"
 
 # ── Path helpers ───────────────────────────────────────────────────────────────
 
@@ -110,21 +111,8 @@ Return ONLY a valid JSON array, nothing else:
 
 def define_tracks_llm(topic: str, context: dict, n: int = 6,
                       hints: list[str] | None = None) -> list[dict]:
-    """Call Anthropic API → return list of normalized track dicts."""
-    try:
-        import anthropic
-    except ImportError:
-        raise RuntimeError("pip install anthropic")
-
-    api_key = config.get("ANTHROPIC_AUTH_TOKEN") or config.get("ANTHROPIC_API_KEY")
-    base_url = config.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_AUTH_TOKEN not set in ~/.claude/settings.json")
-
-    client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
-
+    """Call LLM (Hub or direct Anthropic) → return list of normalized track dicts."""
     hints_str = (", ".join(hints) if hints else "（无特殊要求）")
-
     prompt = _PROMPT.format(
         topic=topic,
         n=n,
@@ -136,12 +124,25 @@ def define_tracks_llm(topic: str, context: dict, n: int = 6,
     )
 
     print(f"Calling LLM (haiku) — defining {n} tracks for '{topic}'...")
-    msg = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=3000,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = msg.content[0].text.strip()
+
+    if hub_client.enabled():
+        raw = hub_client.llm([{"role": "user", "content": prompt}])
+    else:
+        try:
+            import anthropic
+        except ImportError:
+            raise RuntimeError("pip install anthropic")
+        api_key = config.get("ANTHROPIC_AUTH_TOKEN") or config.get("ANTHROPIC_API_KEY")
+        base_url = config.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+        if not api_key:
+            raise RuntimeError("ANTHROPIC_AUTH_TOKEN not set in ~/.claude/settings.json")
+        client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=3000,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = msg.content[0].text.strip()
 
     m = re.search(r'\[.*\]', raw, re.DOTALL)
     if not m:

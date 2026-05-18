@@ -18,6 +18,7 @@ Usage examples:
   python3 cli.py ingest-ahrefs --topic <t> --kind brand-radar --file resp.json --brand quo.com
 
   python3 cli.py export --topic <t> [--synthesis-file synthesis.md]
+  python3 cli.py export-briefs --topic <t> [--min-items 3] [--top-tt 15] [--top-yt 10]
 """
 from __future__ import annotations
 
@@ -34,14 +35,14 @@ sys.path.insert(0, str(ROOT))
 import db
 import hub_client
 from fetchers import dataforseo, itunes, apify, youtube, ahrefs_ingest
-from export import excel, html as html_exp
+from export import excel, html as html_exp, briefs as briefs_exp
 from analysis import social_seeds as _social_seeds
 from analysis import cluster as _cluster
 from analysis import define_tracks as _define_tracks
 from pipeline import discover as _discover
 
 
-REPORTS_BASE = pathlib.Path.home() / "workspace/analytics/reports"
+REPORTS_BASE = pathlib.Path.home() / "workspace/CIA/reports"
 
 
 def topic_dir(topic: str) -> pathlib.Path:
@@ -454,6 +455,17 @@ def cmd_export(args):
         print(f"  {sheet:32s}  {c:>5}")
 
 
+def cmd_export_briefs(args):
+    p = db_path_for(args.topic)
+    out = briefs_exp.export_briefs(
+        p,
+        min_items=args.min_items,
+        top_tt=args.top_tt,
+        top_yt=args.top_yt,
+    )
+    print(f"\nOutput dir: {out}")
+
+
 def cmd_seed_save(args):
     """Save seed keywords (with dimension/side metadata) to DB."""
     p = db_path_for(args.topic)
@@ -473,6 +485,370 @@ def cmd_seed_save(args):
         rows.append({"keyword": kw.strip(), "dimension": dim.strip(), "side": side.strip()})
     n = db.upsert_rows(p, "seeds", rows, on_conflict="IGNORE")
     print(f"saved {n} seeds")
+
+
+# ---------- LLM helpers ----------
+
+_SEED_EXPAND_PROMPT = """\
+You are a market research analyst. Expand search seeds for competitive analysis of: "{topic}" (country: {country}).
+
+Generate a keyword seed list across 20 market dimensions. Return ONLY a valid JSON array:
+[
+  {{"dim": "demand|core", "keywords": ["kw1", "kw2"]}},
+  ...
+]
+
+Required dim values and guidance:
+demand|core        - Core action/problem keywords (4-8 kws)
+demand|audience    - Who uses this: job/role/industry segments (3-6 kws)
+demand|scenario    - When/where needed: trigger scenarios (3-5 kws)
+demand|pain        - Pain point phrases: "how to", "best way to" (3-6 kws)
+demand|self_describe - How users describe their own need in plain language (3-5 kws)
+demand|adjacent    - Adjacent categories this user also searches (3-5 kws)
+demand|platform    - Platform-specific: "for iPhone", "for small business" (2-4 kws)
+supply|solutions   - Existing solution types (3-6 kws)
+supply|purchase    - Purchase intent: "pricing", "plans", "vs", "alternative" (3-6 kws)
+supply|channels    - Discovery: "best X", "X review", "X tutorial" (3-5 kws)
+supply|traditional - Traditional/offline alternatives being displaced (3-5 kws)
+supply|complaints  - Common complaints about existing solutions (3-5 kws)
+gap|ignored_audience - Underserved segments: regions/industries/roles (3-5 kws)
+gap|scenario       - Scenarios no product serves well yet (2-4 kws)
+gap|geo            - Geographic/language variations, non-US markets (2-4 kws)
+gap|feature        - Missing features users ask for (2-4 kws)
+gap|pricing        - Pricing gaps: "free", "cheap", "affordable" (2-4 kws)
+action|channel     - GTM signals: "template", "tutorial", "how to start" (2-4 kws)
+action|monetize    - Monetization signals: "pricing", "enterprise", "API" (2-4 kws)
+action|timing      - Market timing: new entrants, recent trend keywords (2-4 kws)
+
+Rules: all keywords lowercase, 1-4 words each, 50-80 total across all dimensions.
+"{topic}" seeds ONLY demand|core; derive all other dims independently from market knowledge.
+{hints_line}
+"""
+
+_SYNTHESIZE_PROMPT = """\
+You are a CIA-style market analyst. Write a synthesis report for the CIA market intelligence tool.
+Follow this EXACT structure (v4 anti-bias template):
+
+# 一、赛道全景（按 total_reviews 降序排列）
+| # | 赛道名 | Apps数 | 总Reviews | 估算TAM | PLG得分 | 与用户方向关系 |
+
+# 二、Top {n_tracks} 赛道详细卡片
+For each track include:
+## Track N: <name> (<name_en>)
+### 传播侧 — top social hooks with share_rate/score
+### 需求侧 — top keywords with vol/SV/KD/CPC
+### 供给侧 — top 3 competitors with reviews + pricing
+### PLG 体检 | TTV(s) | setup_cost | viral_loop | sales_dep | PLG得分 |
+### 切入角度 (≤2条, based on review pain points or ASO gaps)
+
+# 三、PLG 全赛道对照矩阵
+
+# 四、传播侧跨赛道洞察 (cross-track TikTok/Reddit hook patterns)
+
+# 五、跨赛道组合策略
+## 5.1 单赛道推荐（by resource constraints）
+## 5.2 双赛道最高ROI组合
+## 5.3 3/6/12个月分阶段路线
+
+# 六、对用户原始假设的批判性评估 ★
+| 用户假设 | 数据排名 | 与最大赛道TAM差距 | 反向证据 | 建议 |
+（Must state: "你假设的赛道在全体中排第几"）
+
+# 七、行动建议（数据支持推翻时必须推翻，不允许hedge）
+
+Anti-bias rules:
+- Sort all tracks by total_reviews, NOT by topic relevance
+- User's original topic goes in chapter 六, NOT chapter 一 position 1 (unless data supports it)
+- Every PLG scorecard must have TTV/setup_cost/viral_loop/sales_dep
+
+Here is the market data:
+
+## Topic: {topic}
+
+## Tracks (sorted by total reviews):
+{tracks_summary}
+
+## Top Google Keywords (golden: vol≥200, KD≤35, CPC≥1):
+{google_kw}
+
+## App Store Blue Ocean Keywords (SV≥500, ≤3 apps):
+{aso_blue_ocean}
+
+## Top Social Content:
+{social_summary}
+
+## Competitor App Pain Points (low-rated reviews):
+{pain_points}
+"""
+
+
+def _call_llm(messages: list[dict], model: str = "claude-haiku-4-5-20251001",
+              max_tokens: int = 5000) -> str:
+    """Call LLM via Hub if available, otherwise direct Anthropic."""
+    if hub_client.enabled():
+        return hub_client.llm(messages, model=model, max_tokens=max_tokens)
+    try:
+        import anthropic
+    except ImportError:
+        raise RuntimeError("pip install anthropic  (or configure CIA_HUB_URL)")
+    api_key = config.get("ANTHROPIC_AUTH_TOKEN") or config.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_AUTH_TOKEN not set (or configure CIA_HUB_URL)")
+    base_url = config.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+    client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
+    msg = client.messages.create(model=model, max_tokens=max_tokens, messages=messages)
+    return msg.content[0].text.strip()
+
+
+def cmd_expand_seeds(args):
+    """LLM-powered 20-dimension seed keyword expansion → saves to seeds table."""
+    import json as _json, re as _re
+    p = db_path_for(args.topic)
+    hints_line = f"User hints (include if market data supports): {args.hints}" if args.hints else ""
+    prompt = _SEED_EXPAND_PROMPT.format(
+        topic=args.topic, country=args.country, hints_line=hints_line)
+    print(f"Expanding seeds for '{args.topic}' via LLM...")
+    raw = _call_llm([{"role": "user", "content": prompt}])
+    m = _re.search(r'\[.*\]', raw, _re.DOTALL)
+    if not m:
+        print(f"ERROR: LLM did not return JSON array.\n{raw[:300]}", file=sys.stderr); sys.exit(1)
+    items = _json.loads(m.group(0))
+    rows = []
+    for item in items:
+        dim = item.get("dim", "demand|core")
+        parts = dim.split("|", 1)
+        side = parts[0] if len(parts) == 2 else "demand"
+        dimension = parts[1] if len(parts) == 2 else dim
+        for kw in item.get("keywords", []):
+            kw = kw.strip().lower()
+            if kw:
+                rows.append({"keyword": kw, "dimension": dimension, "side": side})
+    n = db.upsert_rows(p, "seeds", rows, on_conflict="IGNORE")
+    print(f"Saved {n} seed keywords across {len(items)} dimensions")
+
+
+def cmd_synthesize(args):
+    """LLM-powered synthesis report → writes synthesis.md to report dir."""
+    import json as _json
+    p = db_path_for(args.topic)
+    d = topic_dir(args.topic)
+
+    # Pull data from DB
+    tracks_df = db.query_df(p, """
+        SELECT t.name, t.name_en, t.description,
+               COUNT(DISTINCT cc.competitor_id) AS n_apps,
+               SUM(ca.review_count) AS total_reviews,
+               AVG(ca.rating) AS avg_rating
+        FROM tracks t
+        LEFT JOIN competitor_clusters cc ON cc.cluster_id = t.track_id
+        LEFT JOIN competitors_app ca ON ca.app_id = cc.competitor_id AND cc.competitor_type='app'
+        GROUP BY t.track_id ORDER BY total_reviews DESC NULLS LAST
+    """)
+
+    gkw_df = db.query_df(p, """
+        SELECT keyword, volume, kd, cpc_usd, intent FROM keywords_google
+        WHERE volume>=200 AND kd<=35 AND cpc_usd>=1
+        ORDER BY volume DESC LIMIT 20
+    """)
+
+    aso_blue_df = db.query_df(p, """
+        SELECT keyword, MAX(search_volume) AS sv, COUNT(DISTINCT app_id) AS n
+        FROM appstore_keywords WHERE search_volume>=500
+        GROUP BY keyword HAVING n<=3 ORDER BY sv DESC LIMIT 20
+    """)
+
+    social_df = db.query_df(p, """
+        SELECT 'tiktok' AS src, text AS content, plays AS score,
+               ROUND(CAST(shares AS REAL)/plays, 5) AS share_rate
+        FROM social_tiktok WHERE plays>1000
+        ORDER BY share_rate DESC LIMIT 8
+        UNION ALL
+        SELECT 'reddit', title, score, 0 FROM social_reddit
+        ORDER BY score DESC LIMIT 5
+    """)
+
+    pain_df = db.query_df(p, """
+        SELECT body FROM app_reviews WHERE rating<=3 AND length(body)>50
+        ORDER BY posted_at DESC LIMIT 20
+    """)
+
+    if tracks_df.empty:
+        print("ERROR: No tracks defined. Run propose-tracks + apply-tracks first.", file=sys.stderr)
+        sys.exit(1)
+
+    tracks_summary = "\n".join(
+        f"  {i+1}. {r['name']} ({r.get('name_en','')}) — {int(r.get('total_reviews') or 0):,} reviews, "
+        f"{int(r.get('n_apps') or 0)} apps"
+        for i, (_, r) in enumerate(tracks_df.iterrows())
+    )
+    google_kw = "\n".join(
+        f"  {r['keyword']} vol={r.get('volume',0)} KD={r.get('kd','?')} CPC=${r.get('cpc_usd',0):.2f}"
+        for _, r in gkw_df.iterrows()
+    ) or "  (no golden keywords yet)"
+    aso_blue = "\n".join(
+        f"  {r['keyword']} SV={int(r.get('sv') or 0)} {int(r.get('n') or 0)} apps"
+        for _, r in aso_blue_df.iterrows()
+    ) or "  (no blue ocean ASO keywords yet)"
+    social_summary = "\n".join(
+        f"  [{r.get('src','?')}] {str(r.get('content',''))[:100]} (score={r.get('score',0)})"
+        for _, r in social_df.iterrows()
+    ) or "  (no social data yet)"
+    pain_pts = "\n".join(
+        f"  - {str(r.get('body',''))[:120]}"
+        for _, r in pain_df.iterrows()
+    ) or "  (no review data yet)"
+
+    prompt = _SYNTHESIZE_PROMPT.format(
+        topic=args.topic,
+        n_tracks=min(7, len(tracks_df)),
+        tracks_summary=tracks_summary,
+        google_kw=google_kw,
+        aso_blue_ocean=aso_blue,
+        social_summary=social_summary,
+        pain_points=pain_pts,
+    )
+    print(f"Generating synthesis report for '{args.topic}' via LLM (Sonnet)...")
+    raw = _call_llm(
+        [{"role": "user", "content": prompt}],
+        model="claude-sonnet-4-6",
+        max_tokens=8000,
+    )
+    out = d / "synthesis.md"
+    out.write_text(raw, encoding="utf-8")
+    print(f"synthesis.md written to: {out}")
+    return out
+
+
+# ---------- Pipeline orchestrator ----------
+
+def _step(name: str) -> None:
+    print(f"\n{'='*56}\n  [{name}]\n{'='*56}")
+
+
+def _ns(**kwargs):
+    """Build a minimal argparse.Namespace for calling cmd_* functions."""
+    import argparse as _ap
+    return _ap.Namespace(**kwargs)
+
+
+def cmd_run(args):
+    """Full pipeline: init → fetch → discover → propose tracks → apply → export → synthesize."""
+    topic = args.topic
+    country = args.country
+    n_tracks = args.n_tracks
+    hints = args.hints or ""
+
+    print(f"\nCIA Pipeline — topic='{topic}' country={country}")
+    if args.no_ahrefs:
+        print("  [--no-ahrefs] Ahrefs steps will be skipped")
+    if args.no_social:
+        print("  [--no-social] Social fetch steps will be skipped")
+
+    dbp = db_path_for(topic)
+
+    # Step 0: init
+    _step("0 init")
+    cmd_init(_ns(topic=topic, country=country))
+
+    # Step 1: LLM seed expansion
+    if not args.no_seeds:
+        _step("1 expand-seeds (LLM)")
+        cmd_expand_seeds(_ns(topic=topic, country=country, hints=hints))
+
+    # Step 2: Social fetch (TikTok + Reddit)
+    if not args.no_social:
+        seed_kws = db.query_df(dbp, "SELECT keyword FROM seeds LIMIT 20")
+        kw_str = ",".join(seed_kws["keyword"].tolist()[:8]) if not seed_kws.empty else topic
+        _step("2a fetch-tiktok")
+        cmd_fetch_tiktok(_ns(topic=topic, queries=kw_str, max_items=80))
+        _step("2b fetch-reddit")
+        cmd_fetch_reddit(_ns(topic=topic, queries=kw_str, subreddits="", max_items=60))
+        _step("2c social-to-seeds")
+        cmd_social_to_seeds(_ns(topic=topic, min_share_rate=0.005, min_reddit_score=10,
+                                top_n=80, min_count=3, dry_run=False))
+
+    # Step 3: Ahrefs keyword fetch (seed keywords)
+    if not args.no_ahrefs and hub_client.enabled():
+        _step("3 fetch-ahrefs-kw (seed keywords)")
+        seed_kws = db.query_df(dbp, "SELECT keyword FROM seeds WHERE side='demand' LIMIT 12")
+        if not seed_kws.empty:
+            kw_str = ",".join(seed_kws["keyword"].tolist()[:12])
+            cmd_fetch_ahrefs_kw(_ns(topic=topic, keywords=kw_str, country=country,
+                                    limit=100, matching=False))
+    elif not args.no_ahrefs:
+        print("  [skip] Ahrefs requires CIA_HUB_URL to be set")
+
+    # Step 4: iTunes SERP
+    _step("4 fetch-itunes-serp")
+    seed_kws = db.query_df(dbp, "SELECT keyword FROM seeds WHERE side='demand' LIMIT 8")
+    kw_str = ",".join(seed_kws["keyword"].tolist()[:8]) if not seed_kws.empty else topic
+    cmd_fetch_itunes_serp(_ns(topic=topic, keywords=kw_str, country=country, limit=20))
+
+    # Step 5: Competitor metadata
+    _step("5 fetch-competitors-meta")
+    cmd_fetch_competitors_meta(_ns(topic=topic, app_ids="", country=country))
+
+    # Step 6: Discovery loop (App + Web)
+    _step("6 discover-loop (max 3 rounds)")
+    cmd_discover_loop(_ns(topic=topic, country=country, max_rounds=3, min_new_kw=30,
+                          max_jaccard=0.70, aso_limit=200, itunes_limit=20,
+                          max_apps=20, max_domains=10, budget=5.0, dry_run=False))
+
+    # Step 7: App reviews (top 5)
+    _step("7 fetch-app-reviews (top 5)")
+    cmd_fetch_app_reviews(_ns(topic=topic, app_ids="", top=5, depth=200))
+
+    # Step 8: YouTube
+    if not args.no_social:
+        _step("8 fetch-youtube")
+        seed_kws = db.query_df(dbp, "SELECT keyword FROM seeds WHERE side='demand' LIMIT 4")
+        kw_str = ",".join(seed_kws["keyword"].tolist()[:4]) if not seed_kws.empty else topic
+        cmd_fetch_youtube(_ns(topic=topic, queries=kw_str, per_query=15))
+
+    # Step 9: Ahrefs site metrics for discovered web competitors
+    if not args.no_ahrefs and hub_client.enabled():
+        _step("9 fetch-ahrefs-site (web competitors)")
+        web_df = db.query_df(dbp, "SELECT domain FROM competitors_web LIMIT 15")
+        if not web_df.empty:
+            targets = ",".join(web_df["domain"].dropna().tolist()[:15])
+            cmd_fetch_ahrefs_site(_ns(topic=topic, targets=targets, country=country,
+                                      limit=100, organic_kw=True))
+
+    # Step 10: Status
+    _step("10 status")
+    cmd_status(_ns(topic=topic))
+
+    # PAUSE: propose tracks → human review → apply
+    _step("10.5 propose-tracks (LLM)")
+    cmd_propose_tracks(_ns(topic=topic, n=n_tracks, hints=hints))
+
+    proposal_path = topic_dir(topic) / "proposed_tracks.json"
+    print(f"\nReview and edit the track proposal at:\n  {proposal_path}")
+    print("\nYou can edit track names, keywords, or reorder tracks.")
+    try:
+        input("\n[Press ENTER to apply tracks, or Ctrl+C to abort] ")
+    except KeyboardInterrupt:
+        print("\nAborted. Re-run 'cia apply-tracks --topic \"...\"' when ready.")
+        return
+
+    _step("11 apply-tracks")
+    cmd_apply_tracks(_ns(topic=topic, fetch_svs=False))
+
+    # Step 12: Export HTML + xlsx
+    _step("12 export")
+    cmd_export(_ns(topic=topic, synthesis_file=None))
+
+    # Step 13: LLM synthesis → re-export with synthesis embedded
+    _step("13 synthesize (LLM)")
+    synth_out = cmd_synthesize(_ns(topic=topic))
+    if synth_out and synth_out.exists():
+        _step("13b re-export with synthesis")
+        cmd_export(_ns(topic=topic, synthesis_file=str(synth_out)))
+
+    print(f"\n{'='*56}")
+    print(f"  CIA Pipeline COMPLETE")
+    print(f"  Report dir: {topic_dir(topic)}")
+    print(f"{'='*56}\n")
 
 
 # ---------- argparse wiring ----------
@@ -608,6 +984,38 @@ def main():
 
     sp = sub.add_parser("export"); sp.add_argument("--topic", required=True)
     sp.add_argument("--synthesis-file", default=None); sp.set_defaults(func=cmd_export)
+
+    sp = sub.add_parser("export-briefs", help="Export per-track content briefs for mobile-opr")
+    sp.add_argument("--topic", required=True)
+    sp.add_argument("--min-items", type=int, default=3, help="Skip tracks with fewer total social items")
+    sp.add_argument("--top-tt", type=int, default=15, help="Top N TikTok videos per track")
+    sp.add_argument("--top-yt", type=int, default=10, help="Top N YouTube videos per track")
+    sp.set_defaults(func=cmd_export_briefs)
+
+    sp = sub.add_parser("expand-seeds",
+                        help="LLM 20-dimension seed expansion → saves to seeds table")
+    sp.add_argument("--topic", required=True)
+    sp.add_argument("--country", default="us")
+    sp.add_argument("--hints", default="",
+                    help="Comma-separated user hints, e.g. '实时翻译类,外呼类'")
+    sp.set_defaults(func=cmd_expand_seeds)
+
+    sp = sub.add_parser("synthesize",
+                        help="LLM synthesis report → writes synthesis.md to report dir")
+    sp.add_argument("--topic", required=True)
+    sp.set_defaults(func=cmd_synthesize)
+
+    sp = sub.add_parser("run",
+                        help="Full pipeline: init→fetch→discover→propose tracks→apply→export→synthesize")
+    sp.add_argument("topic")
+    sp.add_argument("--country", default="us")
+    sp.add_argument("--n-tracks", type=int, default=8, help="Number of tracks for LLM to propose (default 8)")
+    sp.add_argument("--hints", default="",
+                    help="Comma-separated track hints, e.g. '实时翻译类,外呼类'")
+    sp.add_argument("--no-ahrefs", action="store_true", help="Skip Ahrefs steps (saves cost)")
+    sp.add_argument("--no-social", action="store_true", help="Skip TikTok/Reddit/YouTube fetch")
+    sp.add_argument("--no-seeds", action="store_true", help="Skip LLM seed expansion (use existing seeds)")
+    sp.set_defaults(func=cmd_run)
 
     args = ap.parse_args()
     args.func(args)

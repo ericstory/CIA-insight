@@ -49,6 +49,24 @@ def fetch(source: str, **params) -> list[dict]:
     return resp.json()
 
 
+def llm(messages: list[dict], *, system: str = "",
+        model: str = "claude-haiku-4-5-20251001", max_tokens: int = 4000) -> str:
+    """Call hub /v1/llm. Returns the text response string."""
+    url = _hub_url()
+    if not url:
+        raise RuntimeError("CIA_HUB_URL not set")
+    resp = requests.post(
+        f"{url.rstrip('/')}/v1/llm",
+        headers={"Authorization": f"Bearer {_hub_token()}"},
+        json={"messages": messages, "system": system, "model": model, "max_tokens": max_tokens},
+        timeout=120,
+    )
+    if resp.status_code == 401:
+        raise RuntimeError("Hub auth failed — check CIA_HUB_TOKEN")
+    resp.raise_for_status()
+    return resp.json()["text"]
+
+
 def check() -> dict:
     """Ping hub health endpoint."""
     url = _hub_url()

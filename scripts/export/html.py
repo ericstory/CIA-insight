@@ -422,6 +422,26 @@ def _translate_social(tracks: list[dict]) -> None:
             r["title_zh"] = trans_map.get(r.get("title") or "", "")
 
 
+# ── Briefs loader ──────────────────────────────────────────────────────────────
+
+def _load_briefs(db_path: pathlib.Path) -> list[dict]:
+    """Load briefs from briefs/briefs.json and attach md_content from each .md file."""
+    briefs_json = db_path.parent / "briefs" / "briefs.json"
+    if not briefs_json.exists():
+        return []
+    import json as _json
+    import re as _re
+    data = _json.loads(briefs_json.read_text(encoding="utf-8"))
+    tracks = data.get("tracks", [])
+    briefs_dir = briefs_json.parent
+    for i, t in enumerate(tracks, 1):
+        slug = f"{i:02d}-" + _re.sub(r"[^a-z0-9]+", "-", (t.get("name_en") or "").lower()).strip("-")
+        md_path = briefs_dir / f"{slug}.md"
+        t["md_content"] = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
+        t["md_filename"] = md_path.name
+    return tracks
+
+
 # ── v1 render (backward compat) ────────────────────────────────────────────────
 
 def render(db_path: pathlib.Path, html_path: pathlib.Path, *, synthesis: str | None = None) -> int:
@@ -472,6 +492,8 @@ def render_v2(db_path: pathlib.Path, html_path: pathlib.Path, *, synthesis: str 
         if synthesis else None
     )
 
+    briefs = _load_briefs(db_path)
+
     ctx = dict(
         topic=topic,
         generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -492,6 +514,7 @@ def render_v2(db_path: pathlib.Path, html_path: pathlib.Path, *, synthesis: str 
         reviews=reviews,
         ai_vis=ai_vis,
         fetch_log=fetch_log,
+        briefs=briefs,
     )
 
     tmpl = env.get_template("report_v2.html.j2")

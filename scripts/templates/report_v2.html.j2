@@ -197,6 +197,43 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-
 .comp-bar-wrap{background:var(--soft);border-radius:4px;height:8px;margin-top:4px;width:100%}
 .comp-bar{background:var(--blue);height:8px;border-radius:4px}
 
+/* ── BRIEFS ── */
+.brief-card{background:var(--card);border:1px solid var(--border);border-radius:10px;
+            padding:20px;margin-bottom:20px}
+.brief-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px}
+.brief-card-title{font-size:16px;font-weight:700}
+.brief-card-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.brief-actions{display:flex;gap:8px;flex-shrink:0}
+.btn-copy,.btn-dl{padding:6px 14px;font-size:12px;font-weight:600;border:none;
+                  border-radius:6px;cursor:pointer;font-family:inherit;transition:opacity .1s}
+.btn-copy{background:#dbeafe;color:#1d4ed8}
+.btn-copy:hover{opacity:.8}
+.btn-dl{background:#dcfce7;color:#15803d}
+.btn-dl:hover{opacity:.8}
+.btn-copy.copied{background:#d1fae5;color:#065f46}
+.brief-section-label{font-size:11px;font-weight:600;color:var(--muted);
+                     text-transform:uppercase;letter-spacing:.06em;margin:14px 0 6px}
+.hook-list{display:flex;flex-wrap:wrap;gap:6px}
+.hook-tag{background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;border-radius:16px;
+          padding:3px 10px;font-size:12px}
+.quote-list{margin:0;padding:0;list-style:none}
+.quote-list li{font-size:13px;color:var(--fg);padding:3px 0;line-height:1.5}
+.quote-list li::before{content:'"';color:var(--muted);margin-right:2px}
+.quote-list li::after{content:'"';color:var(--muted);margin-left:2px}
+.angle-box{background:var(--soft);border-left:3px solid var(--blue);padding:10px 14px;
+           border-radius:0 6px 6px 0;font-size:13px;line-height:1.6;color:var(--fg)}
+.hashtag-row{display:flex;flex-wrap:wrap;gap:6px}
+.hashtag{background:var(--soft);border-radius:10px;padding:2px 8px;
+         font-size:12px;color:var(--muted)}
+.brief-raw-toggle{font-size:12px;color:var(--blue);cursor:pointer;margin-top:14px;
+                  background:none;border:none;padding:0;font-family:inherit}
+.brief-raw{display:none;margin-top:10px}
+.brief-raw.open{display:block}
+.brief-raw table{font-size:12px;width:100%;border-collapse:collapse}
+.brief-raw td,.brief-raw th{padding:5px 8px;border:1px solid var(--border);text-align:left;vertical-align:top}
+.brief-raw th{background:var(--soft);font-weight:600}
+.brief-raw td a{color:var(--blue);text-decoration:none}
+
 /* ── MOBILE ── */
 @media(max-width:768px){
   #sidebar{transform:translateX(-100%);transition:transform .2s}
@@ -240,6 +277,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-
   <a class="nav-item" href="#/social/reddit" data-nav>
     Reddit <span class="nav-badge">{{ stats.social_reddit }}</span>
   </a>
+  {% if briefs %}
+  <a class="nav-item" href="#/briefs" data-nav>
+    🎬 内容简报 <span class="nav-badge">{{ briefs|length }}</span>
+  </a>
+  {% endif %}
 
   <div class="nav-section">需求侧</div>
   <a class="nav-item" href="#/keywords/google" data-nav>
@@ -325,6 +367,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-
     {% if kw_all %}<a class="entry-card" href="#/keywords/google" data-nav><div class="ec-icon">🔍</div><div class="ec-title">Google 关键词</div><div class="ec-count">{{ kw_all|length }} 条</div></a>{% endif %}
     {% if comp_web %}<a class="entry-card" href="#/competitors/web" data-nav><div class="ec-icon">🌐</div><div class="ec-title">竞品官网流量</div><div class="ec-count">{{ comp_web|length }} 个域名</div></a>{% endif %}
     {% if reviews %}<a class="entry-card" href="#/reviews" data-nav><div class="ec-icon">💔</div><div class="ec-title">用户差评</div><div class="ec-count">{{ reviews|length }} 条</div></a>{% endif %}
+    {% if briefs %}<a class="entry-card" href="#/briefs" data-nav><div class="ec-icon">🎬</div><div class="ec-title">内容简报</div><div class="ec-count">{{ briefs|length }} 个赛道</div></a>{% endif %}
   </div>
 </section>
 
@@ -940,6 +983,95 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-
   </table>
 </section>
 
+<!-- ══════════ BRIEFS ══════════ -->
+{% if briefs %}
+<section class="page-section" data-route="/briefs">
+  <div class="page-head">
+    <h2>🎬 内容简报</h2>
+    <div class="sub">每个赛道的爆款洞察 · 可直接输入 mobile-opr /produce</div>
+  </div>
+
+  {% for b in briefs %}
+  <div class="brief-card">
+    <div class="brief-card-head">
+      <div>
+        <div class="brief-card-title">{{ b.name_en }}</div>
+        <div class="brief-card-sub">{{ b.name }} · TikTok {{ b.tiktok_count }} · YouTube {{ b.youtube_count }}</div>
+      </div>
+      <div class="brief-actions">
+        <button class="btn-copy" onclick="copyBrief(this, 'brief-md-{{ loop.index }}')">复制 Brief</button>
+        <button class="btn-dl"   onclick="downloadBrief('brief-md-{{ loop.index }}', '{{ b.md_filename }}')">下载 .md</button>
+      </div>
+    </div>
+
+    {% if b.viral_hooks %}
+    <div class="brief-section-label">爆款钩子</div>
+    <div class="hook-list">
+      {% for h in b.viral_hooks %}<span class="hook-tag">{{ h }}</span>{% endfor %}
+    </div>
+    {% endif %}
+
+    {% if b.audience_language %}
+    <div class="brief-section-label">受众语言</div>
+    <ul class="quote-list">
+      {% for p in b.audience_language %}<li>{{ p }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if b.content_angle %}
+    <div class="brief-section-label">建议内容角度</div>
+    <div class="angle-box">{{ b.content_angle }}</div>
+    {% endif %}
+
+    {% if b.hashtags %}
+    <div class="brief-section-label">话题标签</div>
+    <div class="hashtag-row">
+      {% for tag in b.hashtags %}<span class="hashtag">{{ tag }}</span>{% endfor %}
+    </div>
+    {% endif %}
+
+    <button class="brief-raw-toggle" onclick="toggleRaw(this)">▸ 展开原始数据</button>
+    <div class="brief-raw">
+      {% if b.top_tiktok %}
+      <div style="font-size:12px;font-weight:600;margin:10px 0 6px">TikTok Top {{ b.top_tiktok|length }}</div>
+      <table>
+        <thead><tr><th>播放</th><th>内容</th><th>链接</th></tr></thead>
+        <tbody>
+        {% for v in b.top_tiktok %}
+        <tr>
+          <td style="white-space:nowrap">{{ v.plays | default(0) | int | string }}</td>
+          <td>{{ (v.text or "")|truncate(120) }}</td>
+          <td><a href="{{ v.url }}" target="_blank">↗</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      {% if b.top_youtube %}
+      <div style="font-size:12px;font-weight:600;margin:14px 0 6px">YouTube Top {{ b.top_youtube|length }}</div>
+      <table>
+        <thead><tr><th>播放</th><th>标题</th><th>链接</th></tr></thead>
+        <tbody>
+        {% for v in b.top_youtube %}
+        <tr>
+          <td style="white-space:nowrap">{{ v.views | default(0) | int | string }}</td>
+          <td>{{ (v.title or "")|truncate(100) }}</td>
+          <td><a href="{{ v.url }}" target="_blank">↗</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+    {# Hidden md content for copy/download #}
+    <textarea id="brief-md-{{ loop.index }}" style="display:none">{{ b.md_content }}</textarea>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
 </main>
 
 <!-- JS -->
@@ -1028,6 +1160,40 @@ function switchTab(trackId, tabName, btn) {
   sec.querySelectorAll('.tab-pane').forEach(p => {
     p.classList.toggle('active', p.dataset.tab === tabName);
   });
+}
+
+// ── Brief copy / download / toggle ────────────────────────────────────────
+function copyBrief(btn, textareaId) {
+  const content = document.getElementById(textareaId)?.value || '';
+  navigator.clipboard.writeText(content).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✓ 已复制';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 2000);
+  }).catch(() => {
+    // Fallback for non-https
+    const ta = document.getElementById(textareaId);
+    ta.style.display = 'block';
+    ta.select();
+    document.execCommand('copy');
+    ta.style.display = 'none';
+  });
+}
+
+function downloadBrief(textareaId, filename) {
+  const content = document.getElementById(textareaId)?.value || '';
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename || 'brief.md';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function toggleRaw(btn) {
+  const raw = btn.nextElementSibling;
+  const open = raw.classList.toggle('open');
+  btn.textContent = (open ? '▾ 收起原始数据' : '▸ 展开原始数据');
 }
 </script>
 </body>

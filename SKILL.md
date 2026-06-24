@@ -680,6 +680,21 @@ TikTok 原来被放在 Step 9（流程末尾），用来"验证"已有结论。
 
 ---
 
+## 十一·五、通用数据源（赛道无关，走 Hub `/v1/fetch`）
+
+不绑定任何具体赛道，任何 topic 都能用。Hub source 名 + params：
+
+| source | 用途 | 关键 params |
+|---|---|---|
+| `serp` | Google 自然搜索结果（任何 query） | `query`, `country`（默认 us）, `lang`, `depth`（默认 10） |
+| `fetch_url` | 抓任意网页正文（竞品官网/定价页/博客） | `url`, `max_chars`（默认 20000） |
+| `paid_organic_split` | 竞品域名 付费 vs 自然流量拆分 | `target`（域名）→ 返回 `organic/paid/paid_share` |
+| `geo` | 国别→各源码解析（多市场 fan-out 用） | `countries`: `["us","jp","in",...]` |
+
+**Geo/语言参数化**：`youtube`、`aso_keywords`、`aso_keywords_bulk`、`app_reviews`、`itunes_*`、`gplay_*`、`ahrefs_*` 全部接受 `country`（ISO 码）+ `lang`，自动映射到各源的 location_code / region。**任何赛道都按 `geo` 支持的国别列表 fan-out 取数**，分析层保持赛道盲。支持国别见 `fetchers/geo.py`。
+
+---
+
 ## 十二、扩展指南
 
 新增数据源：

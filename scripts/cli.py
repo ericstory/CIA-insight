@@ -126,6 +126,47 @@ def cmd_fetch_itunes_serp(args):
     print(f"itunes SERP: {n} rows from {len(kws)} keywords ({t.ms}ms)")
 
 
+def cmd_fetch_gplay_serp(args):
+    from fetchers import gplay
+    p = db_path_for(args.topic)
+    kws = _split(args.keywords)
+    rows = []
+    with db.Timer() as t:
+        if hub_client.enabled():
+            rows = hub_client.fetch("gplay_serp", keywords=kws, country=args.country, limit=args.limit)
+        else:
+            rows = gplay.keyword_to_apps_bulk(kws, country=args.country, limit=args.limit)
+    n = db.upsert_rows(p, "appstore_serp", rows)
+    db.log_fetch(p, "gplay", "keyword_to_apps_bulk",
+                 {"keywords": kws, "country": args.country}, rows=n, duration_ms=t.ms)
+    print(f"gplay SERP: {n} rows from {len(kws)} keywords ({t.ms}ms)")
+
+
+def cmd_fetch_gplay_meta(args):
+    from fetchers import gplay
+    p = db_path_for(args.topic)
+    app_ids = _split(args.app_ids)
+    if not app_ids:
+        # Auto-pick from gplay SERP results
+        df = db.query_df(p,
+            "SELECT DISTINCT app_id FROM appstore_serp WHERE store='android' AND app_id IS NOT NULL "
+            "ORDER BY rank ASC LIMIT ?", (args.top,))
+        app_ids = df["app_id"].tolist() if not df.empty else []
+    if not app_ids:
+        print("No Google Play app IDs found. Run fetch-gplay-serp first.")
+        return
+    rows = []
+    with db.Timer() as t:
+        if hub_client.enabled():
+            rows = hub_client.fetch("gplay_meta", app_ids=app_ids, country=args.country)
+        else:
+            rows = gplay.lookup_apps(app_ids, country=args.country)
+    n = db.upsert_rows(p, "competitors_app", rows)
+    db.log_fetch(p, "gplay", "lookup_apps",
+                 {"app_ids": app_ids, "country": args.country}, rows=n, duration_ms=t.ms)
+    print(f"gplay meta: {n} apps ({t.ms}ms)")
+
+
 def cmd_fetch_aso_keywords(args):
     p = db_path_for(args.topic)
     app_ids = _split(args.app_ids)
@@ -210,7 +251,8 @@ def cmd_fetch_competitors_meta(args):
     p = db_path_for(args.topic)
     app_ids = _split(args.app_ids)
     if not app_ids:
-        df = db.query_df(p, "SELECT DISTINCT app_id FROM appstore_serp WHERE app_id != ''")
+        df = db.query_df(p,
+            "SELECT DISTINCT app_id FROM appstore_serp WHERE app_id != '' AND store='ios'")
         app_ids = df["app_id"].tolist()
     if hub_client.enabled():
         rows = hub_client.fetch("itunes_meta", app_ids=app_ids, country=args.country)
@@ -658,13 +700,17 @@ def cmd_synthesize(args):
     """)
 
     social_df = db.query_df(p, """
-        SELECT 'tiktok' AS src, text AS content, plays AS score,
-               ROUND(CAST(shares AS REAL)/plays, 5) AS share_rate
-        FROM social_tiktok WHERE plays>1000
-        ORDER BY share_rate DESC LIMIT 8
+        SELECT * FROM (
+            SELECT 'tiktok' AS src, text AS content, plays AS score,
+                   ROUND(CAST(shares AS REAL)/plays, 5) AS share_rate
+            FROM social_tiktok WHERE plays>1000
+            ORDER BY share_rate DESC LIMIT 8
+        )
         UNION ALL
-        SELECT 'reddit', title, score, 0 FROM social_reddit
-        ORDER BY score DESC LIMIT 5
+        SELECT * FROM (
+            SELECT 'reddit', title, score, 0 FROM social_reddit
+            ORDER BY score DESC LIMIT 5
+        )
     """)
 
     pain_df = db.query_df(p, """
@@ -676,9 +722,15 @@ def cmd_synthesize(args):
         print("ERROR: No tracks defined. Run propose-tracks + apply-tracks first.", file=sys.stderr)
         sys.exit(1)
 
+    def _nz(v):
+        try:
+            return 0 if v is None or (isinstance(v, float) and v != v) else int(v)
+        except Exception:
+            return 0
+
     tracks_summary = "\n".join(
-        f"  {i+1}. {r['name']} ({r.get('name_en','')}) — {int(r.get('total_reviews') or 0):,} reviews, "
-        f"{int(r.get('n_apps') or 0)} apps"
+        f"  {i+1}. {r['name']} ({r.get('name_en','')}) — {_nz(r.get('total_reviews')):,} reviews, "
+        f"{_nz(r.get('n_apps'))} apps"
         for i, (_, r) in enumerate(tracks_df.iterrows())
     )
     google_kw = "\n".join(
@@ -869,6 +921,14 @@ def main():
     sp = sub.add_parser("fetch-itunes-serp"); sp.add_argument("--topic", required=True)
     sp.add_argument("--keywords", required=True); sp.add_argument("--country", default="us")
     sp.add_argument("--limit", type=int, default=20); sp.set_defaults(func=cmd_fetch_itunes_serp)
+
+    sp = sub.add_parser("fetch-gplay-serp"); sp.add_argument("--topic", required=True)
+    sp.add_argument("--keywords", required=True); sp.add_argument("--country", default="us")
+    sp.add_argument("--limit", type=int, default=20); sp.set_defaults(func=cmd_fetch_gplay_serp)
+
+    sp = sub.add_parser("fetch-gplay-meta"); sp.add_argument("--topic", required=True)
+    sp.add_argument("--app-ids", default=""); sp.add_argument("--country", default="us")
+    sp.add_argument("--top", type=int, default=50); sp.set_defaults(func=cmd_fetch_gplay_meta)
 
     sp = sub.add_parser("fetch-competitors-meta"); sp.add_argument("--topic", required=True)
     sp.add_argument("--app-ids", default=""); sp.add_argument("--country", default="us")

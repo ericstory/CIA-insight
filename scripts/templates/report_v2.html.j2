@@ -704,6 +704,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-
       <span class="metric muted">♥ {{ (t.likes or 0)|num }}</span>
     </div>
     <div class="tt-text">{{ t.text_short }}</div>
+    {% if t.text_zh %}<div style="font-size:11px;color:var(--muted);margin-top:3px;line-height:1.4;font-style:italic">{{ t.text_zh }}</div>{% endif %}
     <div class="tt-foot">
       <span style="color:var(--muted)">@{{ t.author or "—" }}</span>
       <span class="chip">{{ t.query or "" }}</span>
@@ -736,6 +737,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-
     </div>
     <div class="yt-body">
       <div class="yt-title">{{ v.title }}</div>
+      {% if v.title_zh %}<div style="font-size:11px;color:var(--muted);margin-top:2px;font-style:italic">{{ v.title_zh }}</div>{% endif %}
       <div class="yt-channel">{{ v.channel }}</div>
       <div class="yt-stats">
         <b>{{ (v.views or 0)|num }}</b> 次观看 ·
@@ -770,6 +772,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-
     <div class="reddit-title">
       {% if r.url %}<a href="{{ r.url }}" target="_blank" style="color:var(--fg);text-decoration:none">{{ r.title }}</a>{% else %}{{ r.title }}{% endif %}
     </div>
+    {% if r.title_zh %}<div style="font-size:12px;color:var(--muted);margin-top:2px;font-style:italic">{{ r.title_zh }}</div>{% endif %}
     {% if r.body %}<div class="reddit-body">{{ r.body[:300] }}{% if r.body|length > 300 %}…{% endif %}</div>{% endif %}
     <div style="font-size:11px;color:var(--muted);margin-top:4px">
       {{ r.num_comments or 0 }} 条评论 · @{{ r.author }}
@@ -836,16 +839,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-
 <section class="page-section" data-route="/keywords/aso">
   <div class="page-head">
     <h2>ASO 关键词</h2>
-    <div class="sub">App Store 竞品实际排名词 · DataForSEO</div>
+    <div class="sub">App Store 竞品实际排名词 · DataForSEO · 已过滤至赛道相关词</div>
   </div>
   <table class="cia-table display compact" id="dt-kw-aso" style="width:100%">
-    <thead><tr><th>关键词</th><th>搜索量</th><th>排名</th><th>App</th></tr></thead>
+    <thead><tr><th>关键词</th><th>搜索量</th><th>排名</th><th>赛道</th><th>App</th></tr></thead>
     <tbody>
     {% for k in kw_aso %}
     <tr>
       <td>{{ k.keyword }}</td>
       <td class="num">{{ (k.search_volume or 0)|num }}</td>
       <td class="num">{{ k.rank or "—" }}</td>
+      <td>{% if k.track_label %}<span class="chip" style="background:var(--soft);font-size:10px">{{ k.track_label }}</span>{% else %}<span style="color:var(--muted);font-size:11px">—</span>{% endif %}</td>
       <td style="font-size:12px;color:var(--muted)">{{ k.app_name or k.app_id }}</td>
     </tr>
     {% endfor %}

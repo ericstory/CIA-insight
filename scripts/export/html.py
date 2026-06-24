@@ -79,6 +79,31 @@ def _build_stats(con) -> dict:
     return stats
 
 
+# Tokens so generic they appear in almost every keyword in a phone/app category.
+# A keyword that only matches via these tokens is likely a brand KW, not an intent KW.
+_GENERIC_TOKENS: frozenset[str] = frozenset({
+    "phone", "number", "call", "calls", "free", "app", "apps", "best",
+    "mobile", "online", "sim", "card", "service", "services", "line",
+    "text", "chat", "send", "receive", "get", "use", "make",
+})
+
+# Well-known brand / platform names whose keywords pollute intent analysis
+_PLATFORM_BRANDS: frozenset[str] = frozenset({
+    "google", "gmail", "facebook", "apple", "samsung", "microsoft",
+    "whatsapp", "skype", "zoom", "amazon", "netflix", "youtube",
+    "android", "iphone", "ios", "windows",
+})
+
+
+def _brand_dominated(kw: str, app_name_tokens: frozenset[str]) -> bool:
+    """True if every meaningful token in the keyword is a brand/platform/generic term."""
+    tokens = [t for t in kw.lower().split() if len(t) >= 3]
+    if not tokens:
+        return True
+    bad = _PLATFORM_BRANDS | _GENERIC_TOKENS | app_name_tokens
+    return all(t in bad for t in tokens)
+
+
 def _build_tracks(con) -> list[dict]:
     clusters = _q(con, """
         SELECT DISTINCT cc.cluster_id, cc.cluster_label, cc.top_keywords,
@@ -130,20 +155,44 @@ def _build_tracks(con) -> list[dict]:
             ORDER BY ar.posted_at DESC LIMIT 20
         """, [cid])
 
-        # Demand: ASO keywords — fetch wider pool, then filter to track-relevant terms only
-        # (apps like Google Voice rank for "google"/"gmail" with huge SV — exclude that noise)
-        keywords_raw = _q(con, """
-            SELECT ak.keyword, ak.search_volume, ak.rank, ak.app_name, ak.app_id
-            FROM competitor_clusters cc
-            JOIN appstore_keywords ak ON ak.app_id = cc.competitor_id
-            WHERE cc.cluster_id = ? AND cc.competitor_type = 'app'
-            ORDER BY ak.search_volume DESC NULLS LAST LIMIT 500
-        """, [cid])
-        if cluster_tokens:
-            keywords = [k for k in keywords_raw
-                        if any(tok in k["keyword"].lower() for tok in cluster_tokens)][:30]
+        # Demand: ASO keywords — apply track-token filter IN SQL before LIMIT so that
+        # intent keywords (burner phone SV=3K) aren't crowded out by generic App Store
+        # megakeywords (google 37M, gmail 23M) from large apps that co-exist in the cluster.
+        # GROUP BY keyword so each term appears once with the MAX search_volume across apps.
+        specific_tokens = cluster_tokens - _GENERIC_TOKENS - _PLATFORM_BRANDS
+        _filter_tokens = specific_tokens if specific_tokens else cluster_tokens
+        if _filter_tokens:
+            like_clauses = " OR ".join("ak.keyword LIKE ?" for _ in _filter_tokens)
+            like_params: list = [f"%{tok}%" for tok in _filter_tokens] + [cid]
+            keywords_raw = _q(con, f"""
+                SELECT ak.keyword,
+                       MAX(ak.search_volume) AS search_volume,
+                       MIN(ak.rank)          AS rank,
+                       MIN(ak.app_name)      AS app_name,
+                       MIN(ak.app_id)        AS app_id
+                FROM competitor_clusters cc
+                JOIN appstore_keywords ak ON ak.app_id = cc.competitor_id
+                WHERE ({like_clauses})
+                  AND cc.cluster_id = ? AND cc.competitor_type = 'app'
+                GROUP BY ak.keyword
+                ORDER BY MAX(ak.search_volume) DESC NULLS LAST LIMIT 500
+            """, like_params)
         else:
-            keywords = keywords_raw[:30]
+            keywords_raw = _q(con, """
+                SELECT ak.keyword,
+                       MAX(ak.search_volume) AS search_volume,
+                       MIN(ak.rank)          AS rank,
+                       MIN(ak.app_name)      AS app_name,
+                       MIN(ak.app_id)        AS app_id
+                FROM competitor_clusters cc
+                JOIN appstore_keywords ak ON ak.app_id = cc.competitor_id
+                WHERE cc.cluster_id = ? AND cc.competitor_type = 'app'
+                GROUP BY ak.keyword
+                ORDER BY MAX(ak.search_volume) DESC NULLS LAST LIMIT 500
+            """, [cid])
+
+        # Python-side filter is now a lightweight dedup pass (SQL LIKE already handles relevance)
+        keywords = keywords_raw[:30]
 
         # Demand: Google KWs matched by cluster token overlap
         if cluster_tokens:
@@ -207,40 +256,87 @@ def _build_tracks(con) -> list[dict]:
                 kw_sv_map[kw_lower] = {
                     "sv": k.get("volume") or 0, "channel": "web"}
 
-        def _best_sv(kw: str) -> dict:
-            """Exact → forward token match → backward token match (min len 3)."""
-            kw_l = kw.lower()
-            if kw_l in kw_sv_map:
-                return kw_sv_map[kw_l]
-            # Only use tokens ≥ 3 chars to avoid "on"/"e"/"a" false matches
-            tokens = [t for t in kw_l.split() if len(t) >= 3]
-            if not tokens:
-                return {"sv": 0, "channel": None}
-            best: dict = {"sv": 0, "channel": None}
-            for db_kw, info in kw_sv_map.items():
-                sv = info.get("sv") or 0
-                if sv <= (best.get("sv") or 0):
-                    continue
-                db_tokens = [t for t in db_kw.split() if len(t) >= 3]
-                # Forward: all our tokens appear in the DB keyword
-                # e.g. ["virtual","number"] both in "virtual phone number" → match
-                if len(tokens) >= 2 and all(t in db_kw for t in tokens):
-                    best = info
-                # Backward: all DB keyword tokens appear in our keyword
-                # e.g. ["second","phone"] both in "second phone number" → match
-                elif len(db_tokens) >= 2 and all(t in kw_l for t in db_tokens):
-                    best = info
-            return best
+        # ── Overview demand chips ─────────────────────────────────────────────
+        # Source: the already-filtered `keywords` list (specific_tokens filtered, 30 items).
+        # Sort: exact cluster keyword matches first (most "intent-pure"), then by SV desc.
+        # Only strip _PLATFORM_BRANDS (google/facebook etc.) — do NOT use app_name_tokens
+        # here because for phone/number categories the app names ARE the intent keywords.
+        _platform_brand_tokens = _PLATFORM_BRANDS  # e.g. google, facebook, apple
 
-        # Enrich track keywords with SV + channel (fuzzy match)
-        track_keywords_enriched = []
-        for kw in track_keywords:
-            info = _best_sv(kw)
-            track_keywords_enriched.append({
+        def _starts_with_platform_brand(kw: str) -> bool:
+            first = kw.lower().split()[0] if kw.strip() else ""
+            return first in _platform_brand_tokens
+
+        def _overview_sort_key(k):
+            kw_lower = k.get("keyword", "").lower()
+            # Exact cluster keyword → tier 0 (most specific intent)
+            is_exact = kw_lower in cluster_tokens
+            # Starts with platform brand (google, facebook…) → tier 2
+            is_platform = _starts_with_platform_brand(kw_lower)
+            sv = k.get("search_volume") or 0
+            # Platform brands (google voice, facebook…) → lowest tier even if exact cluster match
+            tier = 2 if is_platform else (0 if is_exact else 1)
+            return (tier, -sv)
+
+        demand_overview: list[dict] = []
+        seen_kws: set[str] = set()
+        for k in sorted(keywords, key=_overview_sort_key):
+            kw = k.get("keyword", "")
+            if kw.lower() in seen_kws:
+                continue
+            demand_overview.append({
                 "keyword": kw,
-                "sv": info.get("sv") or 0,
-                "channel": info.get("channel"),
+                "sv": k.get("search_volume") or 0,
+                "channel": "app",
             })
+            seen_kws.add(kw.lower())
+            if len(demand_overview) >= 5:
+                break
+
+        # Supplement with Google KWs if ASO is sparse
+        for k in sorted(all_google_kw, key=lambda x: x.get("volume") or 0, reverse=True):
+            if len(demand_overview) >= 5:
+                break
+            kw = k.get("keyword", "")
+            if kw.lower() in seen_kws:
+                continue
+            if not cluster_tokens or any(tok in kw.lower() for tok in cluster_tokens):
+                if not _starts_with_platform_brand(kw):
+                    demand_overview.append({
+                        "keyword": kw,
+                        "sv": k.get("volume") or 0,
+                        "channel": "web",
+                    })
+                    seen_kws.add(kw.lower())
+
+        # Fallback: LLM track keywords with fuzzy SV lookup (original logic)
+        if not demand_overview:
+            def _best_sv(kw: str) -> dict:
+                """Exact → forward token match → backward token match (min len 3)."""
+                kw_l = kw.lower()
+                if kw_l in kw_sv_map:
+                    return kw_sv_map[kw_l]
+                tokens = [t for t in kw_l.split() if len(t) >= 3]
+                if not tokens:
+                    return {"sv": 0, "channel": None}
+                best: dict = {"sv": 0, "channel": None}
+                for db_kw, info in kw_sv_map.items():
+                    sv = info.get("sv") or 0
+                    if sv <= (best.get("sv") or 0):
+                        continue
+                    db_tokens = [t for t in db_kw.split() if len(t) >= 3]
+                    if len(tokens) >= 2 and all(t in db_kw for t in tokens):
+                        best = info
+                    elif len(db_tokens) >= 2 and all(t in kw_l for t in db_tokens):
+                        best = info
+                return best
+
+            track_keywords_for_fallback = [k.strip() for k in _tk_str.split(",") if k.strip()][:10]
+            for kw in track_keywords_for_fallback:
+                info = _best_sv(kw)
+                demand_overview.append({"keyword": kw, "sv": info.get("sv") or 0, "channel": info.get("channel")})
+
+        track_keywords_enriched = demand_overview
 
         aso_total_sv = sum(k.get("search_volume") or 0 for k in keywords)
         google_total_sv = sum(k.get("volume") or 0 for k in google_kw)
@@ -317,18 +413,66 @@ def _build_keywords(con) -> dict:
               (k.get("volume") or 0) >= 200 and
               (k.get("kd") is None or (k.get("kd") or 999) <= 35) and
               (k.get("cpc_usd") or 0) >= 1]
-    aso = _q(con, """
+
+    # Load track keyword phrases for ASO matching (from competitor_clusters)
+    _track_phrases: list[tuple[int, str, list[str]]] = []
+    try:
+        clusters = _q(con, """
+            SELECT DISTINCT cluster_id, cluster_label, top_keywords
+            FROM competitor_clusters
+            WHERE cluster_id >= 0 AND top_keywords IS NOT NULL AND top_keywords != ''
+        """)
+        for c in clusters:
+            phrases = [p.strip().lower() for p in (c.get("top_keywords") or "").split(",") if p.strip()]
+            if phrases:
+                _track_phrases.append((
+                    int(c["cluster_id"]),
+                    str(c.get("cluster_label") or f"Track {c['cluster_id']}"),
+                    phrases,
+                ))
+    except Exception:
+        pass
+
+    def _assign_track(kw: str) -> tuple[int | None, str]:
+        kw_lower = kw.lower()
+        for tid, tlabel, phrases in _track_phrases:
+            if any(p in kw_lower for p in phrases):
+                return tid, tlabel
+        return None, ""
+
+    # ASO: only show keywords that match at least one track; add track_label badge
+    aso_raw = _q(con, """
         SELECT ak.keyword, ak.search_volume, ak.rank, ak.app_name, ak.app_id
         FROM appstore_keywords ak
         ORDER BY ak.search_volume DESC NULLS LAST
-        LIMIT 200
+        LIMIT 2000
     """)
+    aso: list[dict] = []
+    seen_aso: set[str] = set()
+    for k in aso_raw:
+        kw = k.get("keyword") or ""
+        if kw.lower() in seen_aso:
+            continue
+        seen_aso.add(kw.lower())
+        tid, tlabel = _assign_track(kw)
+        if tid is not None:
+            k["track_id"] = tid
+            k["track_label"] = tlabel
+            aso.append(k)
+        if len(aso) >= 300:
+            break
+
     gaps = _q(con, """
         SELECT keyword, search_volume, COUNT(DISTINCT app_id) AS n_apps
         FROM appstore_keywords WHERE search_volume >= 200
         GROUP BY keyword HAVING n_apps <= 3
         ORDER BY search_volume DESC LIMIT 50
     """)
+    # Add track labels to gaps too
+    for k in gaps:
+        _, tlabel = _assign_track(k.get("keyword") or "")
+        k["track_label"] = tlabel
+
     return {"all": all_kw, "golden": golden, "aso": aso, "gaps": gaps}
 
 
@@ -379,15 +523,24 @@ def _translate_batch(texts: list[str]) -> list[str]:
     return [""] * len(texts)
 
 
-def _translate_social(tracks: list[dict]) -> None:
-    """Translate TikTok captions, YouTube titles, Reddit titles in-place."""
+def _translate_social(
+    tracks: list[dict],
+    global_tiktok: list[dict] | None = None,
+    global_youtube: list[dict] | None = None,
+    global_reddit: list[dict] | None = None,
+) -> None:
+    """Translate TikTok captions, YouTube titles, Reddit titles in-place.
+
+    Covers both per-track items and the global listing pages in one shared LLM call
+    so duplicates are translated only once.
+    """
     def _needs_zh(text: str) -> bool:
         if not text:
             return False
         cjk = sum(1 for c in text if '一' <= c <= '鿿')
         return cjk / max(len(text), 1) < 0.3
 
-    # Collect unique texts
+    # Collect unique texts from per-track AND global lists
     text_set: set[str] = set()
     for t in tracks:
         for v in t.get("tiktok", []):
@@ -399,6 +552,15 @@ def _translate_social(tracks: list[dict]) -> None:
         for r in t.get("reddit", []):
             s = r.get("title") or ""
             if _needs_zh(s): text_set.add(s)
+    for v in (global_tiktok or []):
+        s = v.get("text_short") or ""
+        if _needs_zh(s): text_set.add(s)
+    for v in (global_youtube or []):
+        s = v.get("title") or ""
+        if _needs_zh(s): text_set.add(s)
+    for r in (global_reddit or []):
+        s = r.get("title") or ""
+        if _needs_zh(s): text_set.add(s)
 
     if not text_set:
         return
@@ -413,6 +575,7 @@ def _translate_social(tracks: list[dict]) -> None:
         results = _translate_batch(batch)
         trans_map.update(zip(batch, results))
 
+    # Apply to per-track items
     for t in tracks:
         for v in t.get("tiktok", []):
             v["text_zh"] = trans_map.get(v.get("text_short") or "", "")
@@ -420,6 +583,13 @@ def _translate_social(tracks: list[dict]) -> None:
             v["title_zh"] = trans_map.get(v.get("title") or "", "")
         for r in t.get("reddit", []):
             r["title_zh"] = trans_map.get(r.get("title") or "", "")
+    # Apply to global list pages
+    for v in (global_tiktok or []):
+        v["text_zh"] = trans_map.get(v.get("text_short") or "", "")
+    for v in (global_youtube or []):
+        v["title_zh"] = trans_map.get(v.get("title") or "", "")
+    for r in (global_reddit or []):
+        r["title_zh"] = trans_map.get(r.get("title") or "", "")
 
 
 # ── Briefs loader ──────────────────────────────────────────────────────────────
@@ -464,10 +634,10 @@ def render_v2(db_path: pathlib.Path, html_path: pathlib.Path, *, synthesis: str 
     with sqlite3.connect(db_path) as con:
         stats = _build_stats(con)
         tracks = _build_tracks(con)
-        _translate_social(tracks)   # adds text_zh / title_zh in-place
         tiktok = _build_tiktok(con)
         youtube = _build_youtube(con)
         reddit = _q(con, "SELECT * FROM social_reddit ORDER BY score DESC NULLS LAST LIMIT 100")
+        _translate_social(tracks, tiktok, youtube, reddit)  # one shared LLM call for all
         keywords = _build_keywords(con)
         comp_web = _q(con, """
             SELECT domain, monthly_organic_traffic, organic_keywords_count,

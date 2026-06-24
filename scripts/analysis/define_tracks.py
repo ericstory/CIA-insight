@@ -278,7 +278,6 @@ def assign_competitors(db_path: pathlib.Path) -> int:
             continue  # no track match — stays in global competitors page only
         cid = str(a["app_id"])
         rows.append({
-            "app_id": cid,
             "competitor_id": cid,
             "competitor_type": "app",
             "domain": None,
@@ -303,7 +302,6 @@ def assign_competitors(db_path: pathlib.Path) -> int:
             continue
         domain = str(w["domain"])
         rows.append({
-            "app_id": domain,
             "competitor_id": domain,
             "competitor_type": "web",
             "domain": domain,

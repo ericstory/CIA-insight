@@ -43,10 +43,20 @@ def normalize_keywords(raw: dict, *, source_seed: str | None = None, country: st
             "intent": _intent(it.get("intents") or it.get("intent")),
             "traffic_potential": _num(it.get("traffic_potential") or it.get("traffic")),
             "parent_topic": it.get("parent_topic") or it.get("parent_keyword"),
+            "vol_mobile_pct": _pct(it.get("volume_mobile_pct")),
+            "vol_desktop_pct": _pct(it.get("volume_desktop_pct")),
             "country": country,
             "source_seed": source_seed,
         })
     return rows
+
+
+def _pct(x) -> float | None:
+    """Keep mobile/desktop split as a float in [0,1] (unlike _num which floors)."""
+    try:
+        return round(float(x), 2) if x is not None and x != "" else None
+    except (TypeError, ValueError):
+        return None
 
 
 def normalize_site_explorer_metrics(raw: dict, *, domain: str) -> dict | None:
@@ -72,10 +82,10 @@ def normalize_organic_keywords(raw: dict, *, domain: str) -> list[dict]:
         out.append({
             "domain": domain,
             "keyword": it.get("keyword"),
-            "rank": _num(it.get("position") or it.get("rank")),
+            "rank": _num(it.get("best_position") or it.get("position") or it.get("rank")),
             "volume": _num(it.get("volume") or it.get("search_volume")),
             "cpc_usd": round(cpc / 100, 2) if cpc and cpc > 0 else None,
-            "url": it.get("url"),
+            "url": it.get("best_position_url") or it.get("url"),
         })
     return [r for r in out if r["keyword"]]
 

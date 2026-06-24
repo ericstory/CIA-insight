@@ -113,6 +113,7 @@ def fetch_app_reviews(
     payload = [{
         "app_id": app_id,
         "location_code": location_code,
+        "language_name": "English",
         "depth": depth,
         "sort_by": sort_by,
     }]
@@ -140,13 +141,14 @@ def fetch_app_reviews(
     items = (data["tasks"][0]["result"][0] or {}).get("items") or []
     rows = []
     for it in items:
+        up = it.get("user_profile") or {}
         rows.append({
-            "id": f"{app_id}::{it.get('review_id') or it.get('hash')}",
+            "id": f"{app_id}::{it.get('id')}",
             "app_id": app_id,
             "rating": it.get("rating", {}).get("value") if isinstance(it.get("rating"), dict) else it.get("rating"),
             "title": it.get("title"),
             "body": it.get("review_text"),
-            "author": it.get("user_name"),
+            "author": up.get("profile_name") if isinstance(up, dict) else None,
             "posted_at": it.get("timestamp"),
         })
     return rows, cost

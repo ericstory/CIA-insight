@@ -234,7 +234,18 @@ def save_clusters(db_path: pathlib.Path, clusters: list[Competitor]) -> int:
 # ── Social data assignment ─────────────────────────────────────────────────────
 
 def assign_social_to_clusters(db_path: pathlib.Path) -> int:
-    """Score TikTok/YouTube/Reddit against cluster top_keywords → write cluster_id."""
+    """Score TikTok/YouTube/Reddit against cluster top_keywords → write cluster_id.
+
+    Matching uses content text ONLY (not the search query used to fetch the item).
+    The query string reflects what we searched for, not what the content is about —
+    using it causes all videos from a "virtual phone number" query to trivially match
+    that cluster even if the video is about character.ai or something unrelated.
+
+    Minimum score thresholds:
+      TikTok  → 1  (captions are short, single keyword match is meaningful)
+      YouTube → 2  (titles are precise; require 2 keyword matches to reduce noise)
+      Reddit  → 2  (same reasoning as YouTube)
+    """
     # Build cluster keyword sets
     clusters_df = db.query_df(db_path,
         "SELECT cluster_id, top_keywords FROM competitor_clusters "
@@ -253,6 +264,10 @@ def assign_social_to_clusters(db_path: pathlib.Path) -> int:
     if not cluster_kws:
         return 0
 
+    # Min keyword-hit count required before assigning an item to a cluster.
+    # Title-only matching (no query contamination) is strict enough; keep threshold at 1.
+    _MIN_SCORE = {"tiktok": 1, "youtube": 1, "reddit": 1}
+
     total = 0
     for source, table, text_col in [
         ("tiktok", "social_tiktok", "text"),
@@ -260,16 +275,15 @@ def assign_social_to_clusters(db_path: pathlib.Path) -> int:
         ("reddit", "social_reddit", "title"),
     ]:
         rows_df = db.query_df(db_path,
-            f"SELECT id, query, {text_col} FROM {table}")
+            f"SELECT id, {text_col} FROM {table}")
         if rows_df.empty:
             continue
 
+        min_score = _MIN_SCORE.get(source, 1)
         map_rows = []
         for _, row in rows_df.iterrows():
-            combined = " ".join(filter(None, [
-                str(row.get("query") or ""),
-                str(row.get(text_col) or ""),
-            ])).lower()
+            # Use content text only — not the fetch query
+            combined = str(row.get(text_col) or "").lower()
 
             best_cid, best_score = -1, 0
             for cid, kws in cluster_kws.items():
@@ -277,7 +291,7 @@ def assign_social_to_clusters(db_path: pathlib.Path) -> int:
                 if score > best_score:
                     best_score, best_cid = score, cid
 
-            if best_score > 0:
+            if best_score >= min_score:
                 map_rows.append({
                     "source": source,
                     "item_id": str(row["id"]),

@@ -49,6 +49,9 @@ def _migrate(db_path: pathlib.Path) -> None:
         "ALTER TABLE competitor_clusters ADD COLUMN cluster_label TEXT",
         # competitor_id mirrors app_id for backward compat with new queries
         "ALTER TABLE competitor_clusters ADD COLUMN competitor_id TEXT",
+        # v4: add store field to appstore_serp and competitors_app (ios/android)
+        "ALTER TABLE appstore_serp ADD COLUMN store TEXT DEFAULT 'ios'",
+        "ALTER TABLE competitors_app ADD COLUMN store TEXT DEFAULT 'ios'",
     ]
     with sqlite3.connect(db_path) as con:
         for sql in migrations:

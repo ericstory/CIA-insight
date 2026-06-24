@@ -174,13 +174,31 @@ python3 cli.py seed-save --topic "ai phone receptionist" --file seeds.txt
 # 1. Claude 在对话中调 MCP（用 ToolSearch 加载 schema）
 mcp__claude_ai_Ahrefs__keywords-explorer-overview \
   keywords="ai receptionist,ai answering service,ai phone answering" \
-  country=us select=keyword,volume,difficulty,cpc,traffic_potential,intents
+  country=us select=keyword,volume,difficulty,cpc,traffic_potential,intents,volume_mobile_pct,volume_desktop_pct
 # 2. 把响应 JSON 保存到 raw/ahrefs-overview-1.json
 # 3. ingest
 python3 cli.py ingest-ahrefs --topic "ai phone receptionist" \
   --kind keywords --file raw/ahrefs-overview-1.json --source-seed "ai receptionist"
 ```
 **关键操作**：每组核心词跑 `matching-terms`（limit 100）+ `related-terms`（limit 50），全部 ingest。**不要**在 LLM 阶段砍数据 — 全部进 SQLite，最后让 Excel/HTML 渲染。
+
+> #### ★ 拓词协议（v5）—— CIA 不是"查词器"，是"长词器"
+> **原则：用户给的是种子，不是词单。绝不只查用户报的词；必须用种子长出该领域流量最大的词，再过滤、再按渠道归位。**
+>
+> **1. 长词（discovery）**：每个方向用 3–8 个种子调 `matching-terms`（`match_mode=terms`、`order_by=volume:desc`、`limit=45+`），把"这个领域最大的词"捞出来——而不是只验证种子本身。`select` 必带 `volume_mobile_pct,volume_desktop_pct`。
+>
+> **2. 过噪（relevance filter）**：拓词原始结果含大量**非产品购买意图**噪音。**只打标记、不物理删除**（全部留在 SQLite 供审计，报告里筛掉即可，谨慎排除）。噪音分两层：
+>    - **通用噪音（任何 topic 都过滤）**：① 招聘类 `*jobs/hiring/resume/salary/career*`；② 品牌导航类（含具体竞品/大厂品牌名，按本 topic 竞品池动态生成，而非写死）；③ 异常聚合值（单词 volume 明显异常如 >500k，人工核验）。
+>    - **topic 专属噪音（每个主题不同，须现场判断，切勿沿用别的主题）**：同一个词根在不同领域意图完全不同。**举例（仅本次电话/通讯主题）**：`*lookup/reverse/who called/find owner*` = 查人不是买产品；硬件 `*corded/cordless phone/answering machine*` = 买座机不是买软件。换成别的主题（如"项目管理软件""减肥 App"）时，这些过滤词**全部作废**，须为新主题重新识别其专属噪音词根。
+>    - ⚠ 反面教训：不要把上一次分析的过滤词当默认值。CIA 是通用拓词器，噪音清单是「每个 topic 现生成」的，不是技能里写死的。
+>
+> **3. 按渠道归位（channel split）**：用 `vol_mobile_pct` 把每个保留词分到两个渠道，**不要混在一张表**：
+>    - `vol_mobile_pct ≥ 0.55` → **移动渠道（App Store / Google Play ASO）**：边走边搜、想装 App 的消费者/个体户意图
+>    - `vol_desktop_pct ≥ 0.55` → **桌面渠道（PC 官网 SEO + Google Ads）**：电脑前对比 SaaS、买服务的 B2B 意图
+>    - 0.45–0.55 之间标记为 mixed
+>    - ⚠ Ahrefs 是 Google 数据、非原生 ASO 量；`vol_mobile_pct` 是**代理信号**，精确 ASO 量仍用 Step 4 的 iTunes SERP / DataForSEO 交叉验证。
+>
+> **4. 输出**：报告对每个方向输出"移动 / 桌面"双列词表，据此分别给 App Store 标题词 与 官网/投放 hero 词——同一产品两套入口词。
 
 ### Step 3：拉 Brand Radar（AI 引用份额）
 ```bash
@@ -378,6 +396,21 @@ FROM keywords_google
 WHERE volume>=200 AND kd<=35 AND cpc_usd>=1
 ORDER BY weighted_vol DESC LIMIT 30;
 
+-- ★ 渠道拆分（拓词协议 v5）：移动=App Store/Play 入口词，桌面=PC官网/Ads 入口词
+--   通用噪音(jobs/hiring)固定过滤；NOT LIKE 的其余词根是【本次电话主题示例】，
+--   换 topic 时必须替换（见 §拓词协议 第2点：lookup/reverse 等只对电话域有效）。
+SELECT keyword, volume, kd, cpc_usd,
+       vol_mobile_pct, vol_desktop_pct,
+       CASE WHEN vol_mobile_pct>=0.55 THEN 'mobile(ASO)'
+            WHEN vol_desktop_pct>=0.55 THEN 'desktop(Web/Ads)'
+            ELSE 'mixed' END AS channel
+FROM keywords_google
+WHERE volume>=500 AND kd<=50
+  AND keyword NOT LIKE '%job%'  AND keyword NOT LIKE '%hiring%'  -- 通用
+  AND keyword NOT LIKE '%lookup%'   AND keyword NOT LIKE '%reverse%'      -- ↓本主题示例，按 topic 替换
+  AND keyword NOT LIKE '%who called%'
+ORDER BY channel, volume DESC;
+
 -- App Store 蓝海词（搜索量大但只有 ≤3 个 App 占据）
 SELECT keyword, search_volume, COUNT(DISTINCT app_id) AS n
 FROM appstore_keywords WHERE search_volume>=500
@@ -426,8 +459,9 @@ ORDER BY sov_pct DESC LIMIT 20;
 （来自实际 TikTok/Reddit 数据，禁止 LLM 编造）
 
 ### 需求侧（Lagging Indicator）
-| 关键词 | vol/SV | KD | CPC | intent |
+| 关键词 | vol/SV | KD | CPC | intent | 渠道(mobile%) |
 （金 KW：vol≥200, KD≤35, CPC≥1 / 蓝海 ASO：SV≥500 且占位 App≤3）
+**拓词协议 v5：本表须按渠道拆成「📱移动(App Store/Play)」与「🖥桌面(PC官网/Ads)」两组**（`vol_mobile_pct≥0.55`→移动，`≥0.55`桌面→桌面），并已剔除招聘/反查/品牌客服噪音词。两组分别支撑 App Store 标题词 与 官网 hero 词。
 
 ### 供给侧（竞争格局）
 | 竞品 | reviews | 定价模式 | 主要获客渠道 |

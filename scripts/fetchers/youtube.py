@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Iterable, Optional
+import time
 
 import requests
 
@@ -16,6 +17,22 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 from config import youtube_api_key
 
 BASE = "https://www.googleapis.com/youtube/v3"
+
+
+def _get_with_retry(url: str, params: dict, *, max_retries: int = 4, timeout: int = 30):
+    """requests.get with retry on transient ConnectTimeout/ConnectionError
+    (defends against local proxy/TUN flakiness for daemon processes)."""
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            return requests.get(url, params=params, timeout=timeout)
+        except (requests.ConnectionError, requests.Timeout) as e:
+            last_exc = e
+            if attempt < max_retries - 1:
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+            raise
+    raise last_exc  # unreachable
 
 
 def search_videos(
@@ -42,7 +59,7 @@ def search_videos(
         params["publishedAfter"] = (
             datetime.utcnow() - timedelta(days=published_after_days)
         ).strftime("%Y-%m-%dT%H:%M:%SZ")
-    r = requests.get(f"{BASE}/search", params=params, timeout=30)
+    r = _get_with_retry(f"{BASE}/search", params, timeout=30)
     r.raise_for_status()
     return [item["id"]["videoId"] for item in r.json().get("items", []) if item["id"].get("videoId")]
 
@@ -58,7 +75,7 @@ def get_video_details(video_ids: Iterable[str]) -> list[dict]:
             "id": ",".join(batch),
             "key": youtube_api_key(),
         }
-        r = requests.get(f"{BASE}/videos", params=params, timeout=30)
+        r = _get_with_retry(f"{BASE}/videos", params, timeout=30)
         r.raise_for_status()
         for v in r.json().get("items", []):
             sn = v["snippet"]

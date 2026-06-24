@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS keywords_google (
     intent TEXT,
     traffic_potential INTEGER,
     parent_topic TEXT,
+    vol_mobile_pct REAL,   -- 移动端搜索占比（ASO/App Store 信号）
+    vol_desktop_pct REAL,  -- 桌面端搜索占比（PC 官网/Google Ads 信号）
     country TEXT DEFAULT 'us',
     source_seed TEXT,
     fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -42,8 +44,9 @@ CREATE TABLE IF NOT EXISTS appstore_serp (
     review_count INTEGER,
     icon_url TEXT,
     country TEXT DEFAULT 'us',
+    store TEXT DEFAULT 'ios',
     fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(keyword, app_id, country)
+    UNIQUE(keyword, app_id, country, store)
 );
 CREATE INDEX IF NOT EXISTS idx_serp_app ON appstore_serp(app_id);
 
@@ -75,6 +78,7 @@ CREATE TABLE IF NOT EXISTS competitors_app (
     bundle_id TEXT,
     icon_url TEXT,
     url TEXT,
+    store TEXT DEFAULT 'ios',
     fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
